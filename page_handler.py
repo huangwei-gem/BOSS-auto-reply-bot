@@ -23,10 +23,12 @@ class BossChatHandler:
         self.page = ChromiumPage()
         self._logged_in = False
 
-    def login(self):
+    def login(self, timeout: int = 120):
         """
         检查登录状态，未登录则等待手动登录。
         登录后保存 cookies 以便下次自动登录。
+        Args:
+            timeout: 等待手动登录的超时时间（秒），默认120秒
         """
         # 先尝试加载已保存的 cookies
         if self._load_cookies():
@@ -38,14 +40,23 @@ class BossChatHandler:
                 return
 
         # 需要手动登录
-        logger.info("需要登录，正在跳转到登录页面...")
+        logger.info(f"需要登录，正在跳转到登录页面...（{timeout}秒内完成）")
         self.page.get("https://www.zhipin.com/web/user/?ka=header-login")
-        input("请在浏览器中手动登录 BOSS 直聘，登录完成后按回车继续...")
+        logger.info(f"请在浏览器中手动登录 BOSS 直聘，登录后自动继续...")
 
-        # 保存登录状态
-        self._save_cookies()
-        self._logged_in = True
-        logger.info("登录成功，Cookie 已保存")
+        # 非交互式等待：轮询检查是否已登录
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            time.sleep(3)
+            # 检查是否已跳转到登录后页面
+            if not self._is_login_page():
+                logger.info("登录成功！")
+                self._save_cookies()
+                self._logged_in = True
+                return
+            logger.debug("等待登录中...")
+
+        raise TimeoutError(f"登录超时（{timeout}秒），请重试")
 
     def _is_login_page(self) -> bool:
         """判断当前是否需要登录"""
@@ -140,9 +151,21 @@ class BossChatHandler:
         return unread_chats
 
     def enter_chat(self, chat_info: dict):
-        """点击进入某个聊天"""
+        """点击进入某个聊天，等待聊天内容加载"""
         chat_info["element"].click()
-        time.sleep(1.5)
+        time.sleep(2)  # 等待聊天内容加载
+        # 等待输入框可用
+        try:
+            for _ in range(10):
+                ready = self.page.run_js("""
+                    const input = document.querySelector('#chat-input');
+                    return input ? 'ready' : 'not ready';
+                """)
+                if ready == 'ready':
+                    break
+                time.sleep(0.5)
+        except Exception:
+            pass
 
     def read_latest_messages(self, count: int = 5) -> List[Dict]:
         """
@@ -195,89 +218,138 @@ class BossChatHandler:
         except Exception:
             return ""
 
-    def send_text(self, text: str):
+    def send_text(self, text: str, retries: int = 3) -> bool:
         """
         在当前聊天中输入并发送文字消息。
         输入框: #chat-input.chat-input (contenteditable)
         发送按钮: .btn-send
-        """
-        try:
-            # 用 JS 输入文字（contenteditable 需要用 textContent）
-            self.page.run_js(f"""
-                const input = document.querySelector('#chat-input');
-                if (input) {{
-                    input.focus();
-                    input.textContent = `{text}`;
-                    input.dispatchEvent(new Event('input', {{bubbles: true}}));
-                    return 'typed';
-                }}
-                return 'not found';
-            """)
-            time.sleep(0.5)
 
-            # 点击发送按钮
-            self.page.run_js("""
-                const sendBtn = document.querySelector('.btn-send');
-                if (sendBtn && !sendBtn.classList.contains('disabled')) {
-                    sendBtn.click();
-                    return 'sent';
-                }
-                return 'button disabled or not found';
-            """)
-            logger.info(f"已发送文字: {text[:30]}...")
-            time.sleep(0.5)
-            return True
-        except Exception as e:
-            logger.error(f"发送文字失败: {e}")
-            return False
+        Args:
+            text: 要发送的文字
+            retries: 发送失败时的重试次数
+        """
+        for attempt in range(1, retries + 1):
+            try:
+                # 用 JS 输入文字（contenteditable 需要用 textContent）
+                self.page.run_js(f"""
+                    const input = document.querySelector('#chat-input');
+                    if (input) {{
+                        input.focus();
+                        input.textContent = `{text}`;
+                        input.dispatchEvent(new Event('input', {{bubbles: true}}));
+                        return 'typed';
+                    }}
+                    return 'not found';
+                """)
+                time.sleep(0.5)
+
+                # 点击发送按钮
+                result = self.page.run_js("""
+                    const sendBtn = document.querySelector('.btn-send');
+                    if (sendBtn && !sendBtn.classList.contains('disabled')) {
+                        sendBtn.click();
+                        return 'sent';
+                    }
+                    return 'button disabled or not found';
+                """)
+
+                if result == 'sent':
+                    logger.info(f"已发送文字: {text[:30]}...")
+                    time.sleep(0.5)
+                    return True
+                else:
+                    logger.warning(f"发送按钮不可用（尝试 {attempt}/{retries}），等待后重试...")
+                    time.sleep(1)
+
+            except Exception as e:
+                logger.error(f"发送文字失败（尝试 {attempt}/{retries}）: {e}")
+                time.sleep(1)
+
+        logger.error(f"发送文字最终失败: {text[:30]}...")
+        return False
 
     def send_resume(self) -> bool:
         """
         点击发送简历按钮，选择简历并发送。
-        流程：
-        1. 点击工具栏的"发简历"按钮，弹出选择框
-        2. 在对话框中选择简历文件（点击文件名按钮）
-        3. 点击"发送"按钮（需要先用 JS 移除 disabled 类）
+        实际流程：
+        1. 点击工具栏的"发简历"按钮，弹出菜单
+        2. 在菜单中点击"附件上传"，打开文件选择对话框
+        3. 选择简历文件（.docx/.pdf）
+        4. 点击"发送"按钮
         """
         try:
-            # 1. 点击"发简历"按钮
+            # 1. 点击"发简历"按钮打开菜单
             self.page.run_js("""
                 const btns = document.querySelectorAll('.toolbar-btn');
                 for (const btn of btns) {
-                    if (btn.textContent.includes('发简历')) {
+                    if (btn.textContent.trim().startsWith('发简历')) {
                         btn.click();
-                        return true;
+                        return 'clicked';
                     }
                 }
-                return false;
+                return 'not found';
             """)
             time.sleep(1)
 
-            # 2. 在对话框中选择简历（选择"黄维简历.docx"或第一个）
-            self.page.run_js("""
-                // 找到包含"黄维简历"的按钮并点击
-                const btns = document.querySelectorAll('button');
-                for (const btn of btns) {
-                    if (btn.textContent.includes('黄维简历')) {
-                        btn.click();
-                        return 'selected 黄维简历';
+            # 2. 点击"附件上传"选项
+            result = self.page.run_js("""
+                const items = document.querySelectorAll('.nav-resume-box li');
+                for (const item of items) {
+                    if (item.textContent.includes('附件上传')) {
+                        item.querySelector('a').click();
+                        return 'clicked upload';
                     }
                 }
-                // 如果没找到，点击第一个简历按钮
-                const resumeBtns = Array.from(btns).filter(b => b.textContent.includes('.docx'));
-                if (resumeBtns.length > 0) {
-                    resumeBtns[0].click();
-                    return 'selected first resume';
-                }
-                return 'no resume found';
+                return 'upload option not found';
             """)
+            logger.info(f"选择附件上传: {result}")
+            time.sleep(2)  # 等待对话框打开
+
+            # 3. 检查是否有限制弹窗（BOSS限制同时只能有3份附件）
+            limit_dialog = self.page.run_js("""
+                const btns = document.querySelectorAll('button');
+                for (const btn of btns) {
+                    if (btn.textContent.trim() === '我知道了') {
+                        btn.click();
+                        return 'limit dialog dismissed';
+                    }
+                }
+                return 'no limit dialog';
+            """)
+            if 'dismissed' in str(limit_dialog):
+                logger.warning("BOSS平台限制：同时只能有3份附件文件，无法上传新简历")
+                return False
+
+            # 4. 在对话框中选择简历文件（在线编辑/附件简历）
+            result = self.page.run_js("""
+                // 查找对话框中的简历列表项
+                const items = document.querySelectorAll('.resume-list-item, .upload-select-item, .dialog-body li');
+                for (const item of items) {
+                    const text = item.textContent;
+                    if (text.includes('.docx') || text.includes('.pdf') || text.includes('简历')) {
+                        item.click();
+                        return 'selected: ' + text.substring(0, 30);
+                    }
+                }
+                // 尝试直接找包含文件名的元素
+                const allEles = document.querySelectorAll('.dialog-body *');
+                for (const el of allEles) {
+                    if (el.textContent.includes('.docx') || el.textContent.includes('.pdf')) {
+                        el.click();
+                        return 'selected file: ' + el.textContent.substring(0, 30);
+                    }
+                }
+                return 'no resume found in dialog';
+            """)
+            logger.info(f"选择简历: {result}")
             time.sleep(0.5)
 
-            # 3. 点击发送按钮（移除 disabled 类后点击）
+            # 5. 点击发送按钮（可能需要移除 disabled 类）
             result = self.page.run_js("""
                 const sendBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim() === '发送');
                 if (sendBtn) {
                     sendBtn.classList.remove('disabled');
+                    sendBtn.disabled = false;
                     sendBtn.click();
                     return 'sent';
                 }
@@ -285,7 +357,7 @@ class BossChatHandler:
             """)
             logger.info(f"发送简历结果: {result}")
             time.sleep(2)
-            return True
+            return 'sent' in str(result)
         except Exception as e:
             logger.error(f"发送简历失败: {e}")
             return False

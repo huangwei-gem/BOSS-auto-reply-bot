@@ -185,9 +185,36 @@ class AutoApply:
             logger.error(f"投递失败: {e}")
             return False
 
+    def is_already_applied(self, job_index: int) -> bool:
+        """检测岗位是否已经投递过（已建立沟通）"""
+        try:
+            js = f"""
+            (function() {{
+                const cards = document.querySelectorAll('.job-card-box');
+                if (cards[{job_index}]) {{
+                    const btn = cards[{job_index}].querySelector('.op-btn.op-btn-chat');
+                    // 如果按钮文字是"继续沟通"说明已经投递过
+                    if (btn && btn.textContent.includes('继续沟通')) {{
+                        return 'already';
+                    }}
+                    return 'new';
+                }}
+                return 'not found';
+            }})()
+            """
+            result = self.bsk.evaluate(js)
+            return 'already' in result
+        except Exception:
+            return False
+
     def apply_to_job_with_message(self, job_index: int) -> bool:
         """投递单个岗位（发送消息版本）"""
         try:
+            # 检查是否已经投递过
+            if self.is_already_applied(job_index):
+                logger.info("该岗位已投递过，跳过")
+                return False
+
             # 点击岗位进入详情页
             js_click = f"""
             (function() {{
@@ -203,13 +230,22 @@ class AutoApply:
             time.sleep(2)
 
             # 点击"立即沟通"
-            self.bsk.evaluate("""
+            result = self.bsk.evaluate("""
                 (function() {
                     const btn = document.querySelector('.op-btn.op-btn-chat');
-                    if (btn) { btn.click(); return 'ok'; }
+                    if (btn) {
+                        if (btn.textContent.includes('继续沟通')) {
+                            return 'already_communicated';
+                        }
+                        btn.click();
+                        return 'ok';
+                    }
                     return 'not found';
                 })()
             """)
+            if 'already_communicated' in result:
+                logger.info("已沟通过，跳过")
+                return False
             time.sleep(2)
 
             # 进入刚建立的聊天
@@ -238,19 +274,26 @@ class AutoApply:
             """)
             time.sleep(0.5)
 
-            # 点击发送
-            result = self.bsk.evaluate("""
-                (function() {
-                    const btn = document.querySelector('.btn-send');
-                    if (btn && !btn.classList.contains('disabled')) {
-                        btn.click();
-                        return 'sent';
-                    }
-                    return 'disabled';
-                })()
-            """)
-            logger.info(f"发送消息: {result}")
-            return True
+            # 点击发送（带重试）
+            for attempt in range(3):
+                result = self.bsk.evaluate("""
+                    (function() {
+                        const btn = document.querySelector('.btn-send');
+                        if (btn && !btn.classList.contains('disabled')) {
+                            btn.click();
+                            return 'sent';
+                        }
+                        return 'disabled';
+                    })()
+                """)
+                if 'sent' in result:
+                    logger.info(f"发送消息成功")
+                    return True
+                logger.warning(f"发送按钮不可用，重试 {attempt+1}/3...")
+                time.sleep(1)
+
+            logger.error("发送消息最终失败")
+            return False
 
         except Exception as e:
             logger.error(f"投递失败: {e}")
