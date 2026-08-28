@@ -71,7 +71,20 @@ class BSKEngine:
         time.sleep(1)
 
     def evaluate(self, js: str) -> str:
-        return self.run(f'evaluate "{js}"')
+        """执行 JS，使用列表参数避免 shell 引号问题"""
+        import shlex
+        # 压缩 JS 为单行
+        js_one_line = js.replace("\n", " ").replace("\r", "").strip()
+        cmd = f"bsk evaluate \"{js_one_line}\" --session {self.session}"
+        logger.debug(f"执行: {cmd[:100]}...")
+        try:
+            result = subprocess.run(
+                cmd, shell=True, capture_output=True,
+                text=True, encoding='utf-8', timeout=30
+            )
+            return result.stdout + result.stderr
+        except Exception as e:
+            return ""
 
     def scroll_bottom(self):
         self.evaluate("window.scrollTo(0, document.body.scrollHeight)")
