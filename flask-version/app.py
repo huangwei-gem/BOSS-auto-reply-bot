@@ -2,11 +2,12 @@
 BOSS 自动回复机器人 - Flask Web 管理界面
 
 提供 Web 界面管理机器人：
-- 查看登录状态
-- 查看未读消息列表
-- 手动触发回复
-- 查看操作日志
-- 配置管理
+- 实时状态监控
+- 未读消息列表
+- 实时操作日志 + 日志文件查看
+- 一键启动/停止
+- 配置和规则查看
+- 浏览器测试报告
 """
 
 import os
@@ -15,13 +16,19 @@ import json
 import logging
 import threading
 import time
+import glob
 from datetime import datetime
-from flask import Flask, render_template, jsonify, request
+from pathlib import Path
+from flask import Flask, render_template, jsonify, request, send_file
 
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 app = Flask(__name__)
+
+# 项目根目录
+PROJECT_ROOT = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+LOG_DIR = PROJECT_ROOT / "logs"
 
 # 全局状态
 bot_state = {
@@ -55,10 +62,43 @@ class WebLogHandler(logging.Handler):
             log_buffer.pop(0)
 
 
+# 同时写入日志文件
+def setup_file_logger():
+    """设置日志文件输出，带自动清理"""
+    LOG_DIR.mkdir(exist_ok=True)
+    log_file = LOG_DIR / f"bot_{datetime.now().strftime('%Y%m%d')}.log"
+
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
+    file_handler.setFormatter(formatter)
+
+    # 自动清理：只保留最近7天的日志
+    cleanup_old_logs()
+
+    return file_handler
+
+
+def cleanup_old_logs():
+    """清理7天前的日志文件"""
+    if not LOG_DIR.exists():
+        return
+    now = time.time()
+    max_age = 7 * 24 * 3600  # 7天
+    for log_file in LOG_DIR.glob("*.log"):
+        if now - log_file.stat().st_mtime > max_age:
+            try:
+                log_file.unlink()
+            except:
+                pass
+
+
 # 配置日志
 web_handler = WebLogHandler()
 web_handler.setLevel(logging.INFO)
 logging.getLogger().addHandler(web_handler)
+logging.getLogger().addHandler(setup_file_logger())
+logging.getLogger().setLevel(logging.INFO)
 
 
 def run_bot_loop():
@@ -234,6 +274,63 @@ def api_config():
             "rules": {k: (v if v != "send_resume" else "发送简历") for k, v in REPLY_RULES.items()}
         }
     })
+
+
+@app.route("/api/logfiles")
+def api_logfiles():
+    """获取日志文件列表"""
+    LOG_DIR.mkdir(exist_ok=True)
+    files = sorted(LOG_DIR.glob("*.log"), key=lambda p: p.stat().st_mtime, reverse=True)
+    result = []
+    for f in files:
+        result.append({
+            "name": f.name,
+            "size": f.stat().st_size,
+            "modified": datetime.fromtimestamp(f.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+        })
+    return jsonify({"success": True, "data": result})
+
+
+@app.route("/api/logfile/<path:filename>")
+def api_logfile(filename):
+    """获取指定日志文件内容"""
+    # 安全校验：防止目录遍历
+    if "/" in filename or "\\" in filename or ".." in filename:
+        return jsonify({"success": False, "message": "Invalid filename"})
+    log_file = LOG_DIR / filename
+    if not log_file.exists():
+        return jsonify({"success": False, "message": "File not found"})
+    try:
+        content = log_file.read_text(encoding="utf-8")
+        # 只返回最后1000行
+        lines = content.split("\n")
+        if len(lines) > 1000:
+            lines = lines[-1000:]
+        return jsonify({"success": True, "data": "\n".join(lines)})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+
+@app.route("/api/test", methods=["POST"])
+def api_test():
+    """运行浏览器测试"""
+    import subprocess
+    try:
+        result = subprocess.run(
+            [sys.executable, str(PROJECT_ROOT / "test_full_run.py")],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=120, cwd=str(PROJECT_ROOT)
+        )
+        return jsonify({
+            "success": result.returncode == 0,
+            "stdout": result.stdout[-5000:] if result.stdout else "",
+            "stderr": result.stderr[-2000:] if result.stderr else "",
+            "returncode": result.returncode
+        })
+    except subprocess.TimeoutExpired:
+        return jsonify({"success": False, "message": "Test timed out (120s)"})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
 
 
 def main():
