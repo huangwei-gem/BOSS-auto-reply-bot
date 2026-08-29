@@ -3,6 +3,7 @@
 
 # Cookie 文件（包含登录信息）
 zhipin_cookies.json
+browser-data/
 
 # Python
 __pycache__/
@@ -18,3 +19,7 @@ venv/
 
 # 日志
 *.log
+
+# 便携浏览器（太大，不上传到 GitHub）
+cloakbrowser-windows-x64/
+

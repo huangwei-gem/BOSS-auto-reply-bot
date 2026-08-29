@@ -6,6 +6,9 @@ echo ===================================================
 echo   BOSS Auto-Reply Bot - DrissionPage Version
 echo ===================================================
 echo.
+echo   Uses portable Chrome (cloakbrowser-windows-x64)
+echo   with BrowserSkill extension built-in.
+echo.
 
 REM === Check Python ===
 python --version >nul 2>&1
@@ -15,6 +18,16 @@ if errorlevel 1 (
     exit /b 1
 )
 echo [OK] Python detected.
+
+REM === Check portable browser ===
+if exist "cloakbrowser-windows-x64\chrome.exe" (
+    echo [OK] Portable browser found.
+) else (
+    echo [ERROR] Portable browser not found!
+    echo        Please place cloakbrowser-windows-x64 in the project root.
+    pause
+    exit /b 1
+)
 
 REM === Check dependencies ===
 echo Checking dependencies...

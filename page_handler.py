@@ -5,22 +5,46 @@ BOSS 自动回复机器人 - 页面操作模块
 CSS 选择器基于 BOSS 直聘聊天页面实际结构。
 """
 
+import os
 import time
 import json
 import logging
 from typing import List, Optional, Dict
+from pathlib import Path
 
-from DrissionPage import ChromiumPage
+from DrissionPage import ChromiumPage, ChromiumOptions
 from config import CHAT_URL, COOKIE_FILE
 
 logger = logging.getLogger(__name__)
+
+# 便携浏览器路径（相对于本文件所在目录）
+BASE_DIR = Path(__file__).parent
+CHROME_PATH = str(BASE_DIR / "cloakbrowser-windows-x64" / "chrome.exe")
+EXTENSION_PATH = str(BASE_DIR / "browser-skill-extension")
+
+
+def _build_browser_options() -> ChromiumOptions:
+    """构建浏览器配置：使用根目录的便携 Chrome + BrowserSkill 扩展"""
+    options = ChromiumOptions()
+    # 清除默认配置里可能残留的旧扩展路径
+    options.remove_extensions()
+    if Path(CHROME_PATH).exists():
+        options.set_browser_path(CHROME_PATH)
+    if Path(EXTENSION_PATH).exists():
+        options.add_extension(EXTENSION_PATH)
+    # 用户数据目录也放在根目录，保持登录状态
+    user_data_dir = BASE_DIR / "browser-data"
+    user_data_dir.mkdir(exist_ok=True)
+    options.set_user_data_path(str(user_data_dir))
+    return options
 
 
 class BossChatHandler:
     """BOSS 聊天页面操作处理器"""
 
     def __init__(self):
-        self.page = ChromiumPage()
+        options = _build_browser_options()
+        self.page = ChromiumPage(addr_or_opts=options)
         self._logged_in = False
 
     def login(self, timeout: int = 120):
@@ -61,18 +85,23 @@ class BossChatHandler:
     def _is_login_page(self) -> bool:
         """判断当前是否需要登录"""
         try:
-            # 如果能找到聊天列表，说明已登录
-            self.page.ele("ul[role='group']", timeout=3)
-            return False
+            # 如果当前URL包含 login 或 user，说明在登录页
+            if 'login' in self.page.url or '/web/user' in self.page.url:
+                return True
+            # 如果能找到聊天列表且URL是chat页面，说明已登录
+            if 'chat' in self.page.url:
+                self.page.ele("ul[role='group']", timeout=3)
+                return False
+            return True
         except Exception:
             return True
 
     def _save_cookies(self):
         """保存 cookies 到文件"""
         try:
-            cookies = self.page.cookies()
+            cookies = self.page.cookies(all_info=True)
             with open(COOKIE_FILE, "w", encoding="utf-8") as f:
-                json.dump(cookies, f, ensure_ascii=False, indent=2)
+                json.dump(list(cookies), f, ensure_ascii=False, indent=2)
             logger.info(f"Cookie 已保存到 {COOKIE_FILE}")
         except Exception as e:
             logger.error(f"保存 Cookie 失败: {e}")
@@ -82,7 +111,11 @@ class BossChatHandler:
         try:
             with open(COOKIE_FILE, "r", encoding="utf-8") as f:
                 cookies = json.load(f)
-            self.page.set_cookies(cookies)
+            # 使用 CDP Network.setCookie 逐个设置
+            for cookie in cookies:
+                self.page.run_js(
+                    f"document.cookie = '{cookie['name']}={cookie['value']}; domain={cookie.get('domain', '')}; path=/;'"
+                )
             logger.info(f"已从 {COOKIE_FILE} 加载 Cookie")
             return True
         except FileNotFoundError:
