@@ -20,6 +20,3 @@ venv/
 # 日志
 *.log
 
-# 便携浏览器（太大，不上传到 GitHub）
-cloakbrowser-windows-x64/
-
