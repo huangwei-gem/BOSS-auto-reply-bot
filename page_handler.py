@@ -3,12 +3,15 @@ BOSS 自动回复机器人 - 页面操作模块
 
 封装 DrissionPage 的所有页面操作。
 CSS 选择器基于 BOSS 直聘聊天页面实际结构。
+支持 macOS / Windows / Linux 多平台自动检测系统 Chrome。
 """
 
 import os
+import sys
 import time
 import json
 import logging
+import platform
 from typing import List, Optional, Dict
 from pathlib import Path
 
@@ -17,25 +20,95 @@ from config import CHAT_URL, COOKIE_FILE
 
 logger = logging.getLogger(__name__)
 
-# 便携浏览器路径（相对于本文件所在目录）
+# 基础目录
 BASE_DIR = Path(__file__).parent
-CHROME_PATH = str(BASE_DIR / "cloakbrowser-windows-x64" / "chrome.exe")
 EXTENSION_PATH = str(BASE_DIR / "browser-skill-extension")
 
 
+def _find_chrome_path() -> Optional[str]:
+    """
+    自动查找 Chrome 浏览器路径，支持多平台：
+    - macOS: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+    - Windows: 便携版 cloakbrowser 或系统 Chrome
+    - Linux: google-chrome / chromium-browser
+    """
+    system = platform.system()
+
+    if system == "Darwin":
+        # macOS 系统 Chrome
+        mac_paths = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+            str(Path.home() / "Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+        ]
+        for p in mac_paths:
+            if Path(p).exists():
+                logger.info(f"[macOS] 找到系统 Chrome: {p}")
+                return p
+        logger.warning("[macOS] 未找到系统 Chrome，请安装 Google Chrome")
+
+    elif system == "Windows":
+        # Windows: 优先使用便携版，其次系统 Chrome
+        portable = BASE_DIR / "cloakbrowser-windows-x64" / "chrome.exe"
+        if portable.exists() and portable.stat().st_size > 1000:  # 排除 LFS 指针文件
+            logger.info(f"[Windows] 找到便携 Chrome: {portable}")
+            return str(portable)
+        win_paths = [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        ]
+        for p in win_paths:
+            if Path(p).exists():
+                logger.info(f"[Windows] 找到系统 Chrome: {p}")
+                return p
+
+    elif system == "Linux":
+        linux_paths = [
+            "/usr/bin/google-chrome",
+            "/usr/bin/chromium-browser",
+            "/usr/bin/chromium",
+            "/snap/bin/chromium",
+        ]
+        for p in linux_paths:
+            if Path(p).exists():
+                logger.info(f"[Linux] 找到 Chrome: {p}")
+                return p
+
+    return None
+
+
 def _build_browser_options() -> ChromiumOptions:
-    """构建浏览器配置：使用根目录的便携 Chrome + BrowserSkill 扩展"""
+    """
+    构建浏览器配置：
+    - 自动检测系统 Chrome（跨平台）
+    - 加载 BrowserSkill 扩展（如果存在）
+    - 用户数据目录放在项目根目录，保持登录状态
+    """
     options = ChromiumOptions()
     # 清除默认配置里可能残留的旧扩展路径
     options.remove_extensions()
-    if Path(CHROME_PATH).exists():
-        options.set_browser_path(CHROME_PATH)
+
+    # 自动检测并设置 Chrome 路径
+    chrome_path = _find_chrome_path()
+    if chrome_path:
+        options.set_browser_path(chrome_path)
+    else:
+        logger.warning("未找到 Chrome 路径，使用 DrissionPage 默认配置")
+
+    # 加载浏览器扩展（如果存在）
     if Path(EXTENSION_PATH).exists():
         options.add_extension(EXTENSION_PATH)
-    # 用户数据目录也放在根目录，保持登录状态
+
+    # 用户数据目录放在项目根目录，保持登录状态
     user_data_dir = BASE_DIR / "browser-data"
     user_data_dir.mkdir(exist_ok=True)
     options.set_user_data_path(str(user_data_dir))
+
+    # macOS 特殊处理：禁用沙箱和 GPU 限制，提高兼容性
+    if platform.system() == "Darwin":
+        options.set_argument('--no-sandbox')
+        options.set_argument('--disable-gpu')
+
     return options
 
 

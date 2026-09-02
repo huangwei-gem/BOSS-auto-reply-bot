@@ -1,75 +1,113 @@
 # BOSS Auto-Reply Bot
 
-BOSS直聘自动化机器人 — 三个版本，一键投递 + 自动回复 + Web管理。
+BOSS直聘自动化机器人 — 跨平台通用版本，支持 Windows / macOS / Linux。
 
-## 项目结构
+> **一键启动**：脚本会自动检测 Python、创建虚拟环境、安装依赖，无需手动配置！
 
-```
-BOSS-auto-reply-bot/
-├── drissionpage-version/          # DrissionPage 版本（自动回复）
-│   ├── main.py                    # 主入口
-│   ├── page_handler.py            # 浏览器操作封装
-│   ├── reply_engine.py            # 回复引擎（规则 + AI）
-│   ├── rules.py                   # 关键词规则
-│   ├── prompts.py                 # AI 提示词
-│   └── config.py                  # 配置文件
-│
-├── browser-skill-version/         # browser-skill 版本（一键投递）
-│   ├── auto_apply.py              # 一键投递主逻辑
-│   └── config.py                  # 投递配置
-│
-├── flask-version/                 # Flask Web 管理界面
-│   ├── app.py                     # Flask 应用
-│   └── templates/index.html       # 前端页面
-│
-├── cloakbrowser-windows-x64/      # 便携版 Chrome（自带 BrowserSkill 扩展）
-├── browser-skill-extension/       # BrowserSkill 扩展文件
-├── start_bot.bat                  # DrissionPage 版本一键启动
-└── requirements.txt               # Python 依赖
-```
+## 快速开始
 
-## 版本说明
+### 只需要两步：
 
-### 1. DrissionPage 版本（自动回复）
-
-持续监控 BOSS 直聘聊天页面的未读消息，自动回复。
-
-**特点：**
-- 使用项目根目录的便携 Chrome（无需安装 Chrome）
-- 内置 BrowserSkill 扩展
-- 混合回复策略：关键词规则优先，AI 兜底
-- 支持自动发送简历
-- Cookie 自动保存，首次登录后无需重复登录
-
-**使用方法：**
-
+#### 1. 克隆项目
 ```bash
-# 安装依赖
-pip install -r requirements.txt
-
-# 双击运行
-start_bot.bat
+git clone <repo-url>
+cd sturgeon
 ```
 
-或命令行：
-```bash
-python main.py
-```
+#### 2. 运行启动脚本
 
-**首次使用：**
+| 平台 | 命令 | 说明 |
+|------|------|------|
+| **macOS / Linux** | `./start_bot.sh` | 自动完成所有配置 |
+| **Windows** | `start_bot.bat` | 双击即可运行 |
+| **通用** | `python main.py` | 需要自行安装依赖 |
+
+首次运行脚本会自动：
+- ✅ 检测 Python 3.8+
+- ✅ 创建虚拟环境 `venv/`
+- ✅ 安装依赖（DrissionPage、openai、flask）
+- ✅ 检测 Chrome 浏览器
+- ✅ 启动机器人
+
+#### 3. 首次使用
 1. 启动后浏览器窗口会自动打开
 2. 手动登录 BOSS 直聘
 3. 登录后 Cookie 自动保存到 `zhipin_cookies.json`
 4. 后续启动自动登录，无需重复操作
 
-**配置 AI 回复：**
-```bash
-# Windows
+## 跨平台支持
+
+| 平台 | 启动脚本 | Chrome 自动检测 |
+|------|----------|-----------------|
+| **Windows** | `start_bot.bat` | 便携版 → 系统 Chrome |
+| **macOS** | `./start_bot.sh` | `/Applications/Google Chrome.app` |
+| **Linux** | `./start_bot.sh` | `google-chrome` / `chromium` |
+
+## 项目结构
+
+```
+sturgeon/
+├── .env.example                 # 环境变量模板
+├── .gitignore                   # 排除敏感文件
+├── config.py                    # 配置文件
+├── main.py                      # 主入口
+├── page_handler.py              # 浏览器操作封装（跨平台）
+├── reply_engine.py              # 回复引擎（规则 + AI）
+├── rules.py                     # 关键词规则
+├── prompts.py                   # AI 提示词
+├── requirements.txt             # Python 依赖
+├── start_bot.bat                # Windows 一键启动
+├── start_bot.sh                 # macOS/Linux 一键启动
+├── test_full_run.py             # 跨平台集成测试
+├── README.md                    # 本文档
+├── browser-skill-extension/     # 浏览器扩展
+├── cloakbrowser-windows-x64/    # 便携版 Chrome（Windows，可选）
+│
+├── browser-skill-version/       # browser-skill 版本（一键投递）
+│   ├── auto_apply.py
+│   └── config.py
+│
+└── flask-version/               # Flask Web 管理界面
+    ├── app.py
+    └── templates/index.html
+```
+
+## 配置 AI 回复
+
+### 方式一：环境变量
+
+#### Windows (cmd):
+```cmd
 set AI_API_KEY_1=your_api_key_here
 set AI_BASE_URL=https://apihub.agnes-ai.com/v1
 ```
 
-### 2. browser-skill 版本（一键投递）
+#### macOS / Linux (bash):
+```bash
+export AI_API_KEY_1=your_api_key_here
+export AI_BASE_URL=https://apihub.agnes-ai.com/v1
+```
+
+### 方式二：.env 文件（推荐）
+```bash
+cp .env.example .env
+# 编辑 .env 填入你的 API Key
+```
+
+## 功能说明
+
+### DrissionPage 版本（自动回复）
+
+持续监控 BOSS 直聘聊天页面的未读消息，自动回复。
+
+**特点：**
+- 跨平台自动检测系统 Chrome
+- 混合回复策略：关键词规则优先，AI 兜底
+- 支持自动发送简历
+- Cookie 自动保存，首次登录后无需重复登录
+- 模拟人类操作延迟，降低被检测风险
+
+### browser-skill 版本（一键投递）
 
 使用 bsk CLI（浏览器插件）实现一键自动投递。
 
@@ -78,19 +116,7 @@ set AI_BASE_URL=https://apihub.agnes-ai.com/v1
 - 自动检测已投递岗位，避免重复
 - 发送失败自动重试
 
-**使用方法：**
-```bash
-# 安装 bsk CLI（全局）
-# 已包含在 Claude Code 安装中，或从 https://github.com/Tencent/BrowserSkill 获取
-
-# 启动会话
-bsk session start --browser <your_browser_id>
-
-# 运行投递
-python browser-skill-version/auto_apply.py --session <session_id> --max 10
-```
-
-### 3. Flask Web 管理界面
+### Flask Web 管理界面
 
 提供 Web 界面管理机器人。
 
@@ -110,7 +136,7 @@ python app.py
 
 ## 配置说明
 
-### config.py（DrissionPage 版本）
+### config.py
 
 ```python
 CHECK_INTERVAL = 8              # 检查间隔（秒）
@@ -131,36 +157,11 @@ REPLY_RULES = {
 }
 ```
 
-### browser-skill-version/config.py
+## 运行测试
 
-```python
-CITY = "上海"                   # 目标城市
-JOB_KEYWORD = "数据分析"         # 岗位关键词
-MAX_APPLIES = 10                # 单次最大投递数
-APPLY_MESSAGE = "您好..."       # 投递自我介绍
-```
-
-## 便携浏览器
-
-DrissionPage 版本使用项目根目录的便携 Chrome (`cloakbrowser-windows-x64`)，无需安装 Chrome 即可运行。
-
-**首次使用需要准备便携浏览器：**
-
-1. 下载 Chrome 便携版（或 Chrome for Testing）
-2. 解压到项目根目录，命名为 `cloakbrowser-windows-x64`
-3. 确保 `cloakbrowser-windows-x64/chrome.exe` 存在
-
-> 注意：便携浏览器体积约 500MB，未包含在 Git 仓库中。请自行准备。
-
-**目录结构要求：**
-```
-BOSS-auto-reply-bot/
-├── cloakbrowser-windows-x64/      # 便携 Chrome（自行准备）
-│   ├── chrome.exe
-│   └── ...
-├── browser-skill-extension/       # BrowserSkill 扩展（已包含）
-├── main.py
-└── start_bot.bat
+```bash
+# 跨平台集成测试
+python test_full_run.py
 ```
 
 ## 安全说明
@@ -172,9 +173,9 @@ BOSS-auto-reply-bot/
 ## 依赖
 
 ```
-DrissionPage>=4.0.0
-openai>=1.0.0
-flask>=3.0.0
+DrissionPage>=4.0.0    # 浏览器自动化
+openai>=1.0.0          # OpenAI 兼容 API
+flask>=3.0.0           # Web 管理界面
 ```
 
 ## License

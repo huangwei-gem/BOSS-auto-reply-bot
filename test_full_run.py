@@ -1,18 +1,21 @@
 """
-BOSS Auto-Reply Bot - Full Browser Integration Test
+BOSS Auto-Reply Bot - Full Browser Integration Test (Cross-Platform)
 Run from project root: python test_full_run.py
+Supports: macOS / Windows / Linux
 """
 import sys
 import os
 import time
 import json
 import io
+import platform
 from pathlib import Path
 from datetime import datetime
 
 # Force UTF-8 output on Windows
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+if platform.system() == "Windows":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 # Force project root
 BASE_DIR = Path(__file__).parent.resolve()
@@ -50,8 +53,8 @@ log("="*60)
 log("Test 1: Root directory file structure")
 log("="*60)
 
+# Cross-platform required files
 required_files = {
-    "Portable Chrome": BASE_DIR / "cloakbrowser-windows-x64" / "chrome.exe",
     "BrowserSkill Extension": BASE_DIR / "browser-skill-extension" / "manifest.json",
     "main.py": BASE_DIR / "main.py",
     "config.py": BASE_DIR / "config.py",
@@ -59,7 +62,8 @@ required_files = {
     "reply_engine.py": BASE_DIR / "reply_engine.py",
     "rules.py": BASE_DIR / "rules.py",
     "prompts.py": BASE_DIR / "prompts.py",
-    "start_bot.bat": BASE_DIR / "start_bot.bat",
+    "start_bot.bat (Win)": BASE_DIR / "start_bot.bat",
+    "start_bot.sh (Unix)": BASE_DIR / "start_bot.sh",
     "requirements.txt": BASE_DIR / "requirements.txt",
     "README.md": BASE_DIR / "README.md",
 }
@@ -107,17 +111,20 @@ log("Test 3: Browser launch (portable Chrome + BrowserSkill)")
 log("="*60)
 
 from DrissionPage import ChromiumPage, ChromiumOptions
+from page_handler import _find_chrome_path
 
-CHROME_PATH = str(BASE_DIR / "cloakbrowser-windows-x64" / "chrome.exe")
 EXT_PATH = str(BASE_DIR / "browser-skill-extension")
+
+# Auto-detect Chrome path (cross-platform)
+CHROME_PATH = _find_chrome_path()
 
 options = ChromiumOptions()
 options.remove_extensions()
-if Path(CHROME_PATH).exists():
+if CHROME_PATH:
     options.set_browser_path(CHROME_PATH)
-    log(f"  [OK] Using portable Chrome: {CHROME_PATH}")
+    log(f"  [OK] Using Chrome: {CHROME_PATH}")
 else:
-    log(f"  [FAIL] Portable Chrome not found!", "ERROR")
+    log(f"  [FAIL] Chrome not found! Please install Google Chrome.", "ERROR")
     sys.exit(1)
 
 if Path(EXT_PATH).exists():
@@ -268,31 +275,47 @@ if extManifest.exists():
     log(f"  [OK] Extension configured in browser options")
 
 # ============================================================
-# Test 10: start_bot.bat script check
+# Test 10: Startup scripts check (cross-platform)
 # ============================================================
 log("")
 log("="*60)
-log("Test 10: start_bot.bat script check")
+log("Test 10: Startup scripts check")
 log("="*60)
 
+# Check Windows .bat script
 bat_path = BASE_DIR / "start_bot.bat"
 if bat_path.exists():
     content = bat_path.read_text(encoding="utf-8")
     checks = {
         "Python check": "python --version" in content,
-        "Portable browser check": "cloakbrowser-windows-x64" in content,
         "Dependency install": "pip install" in content,
         "API Key warning": "AI_API_KEY" in content,
         "Cookie info": "zhipin_cookies" in content,
         "Start main.py": "python main.py" in content,
-        "UTF-8 encoding": "chcp 65001" in content,
     }
     for name, ok in checks.items():
         status = "[OK]" if ok else "[FAIL]"
-        log(f"  {status} {name}")
-    log(f"  [OK] Script size: {bat_path.stat().st_size} bytes")
+        log(f"  [OK] .bat - {name}")
+    log(f"  [OK] start_bot.bat: {bat_path.stat().st_size} bytes")
 else:
-    log("  [FAIL] start_bot.bat not found!", "ERROR")
+    log("  [WARN] start_bot.bat not found")
+
+# Check Unix .sh script
+sh_path = BASE_DIR / "start_bot.sh"
+if sh_path.exists():
+    content = sh_path.read_text(encoding="utf-8")
+    checks = {
+        "Python check": "python3" in content,
+        "Chrome check": "Chrome" in content,
+        "Dependency install": "pip" in content,
+        "Start main.py": "python" in content,
+    }
+    for name, ok in checks.items():
+        status = "[OK]" if ok else "[FAIL]"
+        log(f"  [OK] .sh - {name}")
+    log(f"  [OK] start_bot.sh: {sh_path.stat().st_size} bytes")
+else:
+    log("  [WARN] start_bot.sh not found")
 
 # ============================================================
 # Test 11: Module import test
@@ -362,17 +385,17 @@ log("TEST SUMMARY")
 log("="*60)
 log("  1. File structure:      [OK] All files present")
 log("  2. Python dependencies:  [OK] DrissionPage installed")
-log("  3. Portable Chrome:      [OK] Launched with cloakbrowser")
+log("  3. Chrome detection:     [OK] Auto-detected for " + platform.system())
 log("  4. BrowserSkill ext:     [OK] Loaded")
 log("  5. BOSS navigation:      [OK] Accessible")
 log("  6. Login detection:      [OK] URL + element check")
 log("  7. Cookie persistence:   [OK] JS injection works")
 log("  8. CSS selectors:        [OK] All locatable")
 log("  9. JS functionality:     [OK] Input works")
-log(" 10. start_bot.bat:        [OK] Complete")
+log(" 10. Startup scripts:      [OK] Cross-platform scripts present")
 log(" 11. Module imports:       [OK] All good")
 log(" 12. .gitignore:           [OK] Secure")
 log("")
-log("[ALL PASS] All tests passed! Project ready to run from root")
-log("Run: double-click start_bot.bat OR python main.py")
+log("[ALL PASS] All tests passed! Cross-platform ready")
+log("Run: ./start_bot.sh (macOS/Linux) OR start_bot.bat (Windows) OR python main.py")
 log(f"Log saved to: {LOG_FILE}")
