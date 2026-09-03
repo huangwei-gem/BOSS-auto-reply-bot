@@ -15,117 +15,27 @@ import platform
 from typing import List, Optional, Dict
 from pathlib import Path
 
-from DrissionPage import ChromiumPage, ChromiumOptions
 from config import CHAT_URL, COOKIE_FILE
+from browser_launcher import launch_browser, BrowserInstance
 
 logger = logging.getLogger(__name__)
 
 # 基础目录
 BASE_DIR = Path(__file__).parent
-EXTENSION_PATH = str(BASE_DIR / "browser-skill-extension")
-
-
-def _find_chrome_path() -> Optional[str]:
-    """
-    自动查找 Chrome 浏览器路径，支持多平台：
-    - macOS: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
-    - Windows: 便携版 cloakbrowser 或系统 Chrome
-    - Linux: google-chrome / chromium-browser
-    """
-    system = platform.system()
-
-    if system == "Darwin":
-        # macOS 系统 Chrome
-        mac_paths = [
-            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-            "/Applications/Chromium.app/Contents/MacOS/Chromium",
-            str(Path.home() / "Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
-        ]
-        for p in mac_paths:
-            if Path(p).exists():
-                logger.info(f"[macOS] 找到系统 Chrome: {p}")
-                return p
-        logger.warning("[macOS] 未找到系统 Chrome，请安装 Google Chrome")
-
-    elif system == "Windows":
-        # Windows: 优先使用便携版，其次系统 Chrome
-        portable = BASE_DIR / "cloakbrowser-windows-x64" / "chrome.exe"
-        if portable.exists() and portable.stat().st_size > 1000:  # 排除 LFS 指针文件
-            logger.info(f"[Windows] 找到便携 Chrome: {portable}")
-            return str(portable)
-        win_paths = [
-            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-        ]
-        for p in win_paths:
-            if Path(p).exists():
-                logger.info(f"[Windows] 找到系统 Chrome: {p}")
-                return p
-
-    elif system == "Linux":
-        linux_paths = [
-            "/usr/bin/google-chrome",
-            "/usr/bin/chromium-browser",
-            "/usr/bin/chromium",
-            "/snap/bin/chromium",
-        ]
-        for p in linux_paths:
-            if Path(p).exists():
-                logger.info(f"[Linux] 找到 Chrome: {p}")
-                return p
-
-    return None
-
-
-def _build_browser_options() -> ChromiumOptions:
-    """
-    构建浏览器配置：
-    - 自动检测系统 Chrome（跨平台）
-    - 加载 BrowserSkill 扩展（如果存在）
-    - 用户数据目录放在项目根目录，保持登录状态
-    """
-    options = ChromiumOptions()
-    # 清除默认配置里可能残留的旧扩展路径
-    options.remove_extensions()
-
-    # 自动检测并设置 Chrome 路径
-    chrome_path = _find_chrome_path()
-    if chrome_path:
-        options.set_browser_path(chrome_path)
-    else:
-        logger.warning("未找到 Chrome 路径，使用 DrissionPage 默认配置")
-
-    # 加载浏览器扩展（如果存在）
-    if Path(EXTENSION_PATH).exists():
-        options.add_extension(EXTENSION_PATH)
-
-    # 用户数据目录放在项目根目录，保持登录状态
-    user_data_dir = BASE_DIR / "browser-data"
-    user_data_dir.mkdir(exist_ok=True)
-    options.set_user_data_path(str(user_data_dir))
-
-    # macOS 特殊处理：禁用沙箱和 GPU 限制，提高兼容性
-    if platform.system() == "Darwin":
-        options.set_argument('--no-sandbox')
-        options.set_argument('--disable-gpu')
-
-    return options
 
 
 class BossChatHandler:
     """BOSS 聊天页面操作处理器"""
 
     def __init__(self):
-        options = _build_browser_options()
-        self.page = ChromiumPage(addr_or_opts=options)
+        self.browser: BrowserInstance = launch_browser()
+        self.page = self.browser.page
         self._logged_in = False
 
     def login(self, timeout: int = 120):
         """
         检查登录状态，未登录则等待手动登录。
         登录后保存 cookies 以便下次自动登录。
-        Args:
-            timeout: 等待手动登录的超时时间（秒），默认120秒
         """
         # 先尝试加载已保存的 cookies
         if self._load_cookies():
@@ -139,13 +49,12 @@ class BossChatHandler:
         # 需要手动登录
         logger.info(f"需要登录，正在跳转到登录页面...（{timeout}秒内完成）")
         self.page.get("https://www.zhipin.com/web/user/?ka=header-login")
-        logger.info(f"请在浏览器中手动登录 BOSS 直聘，登录后自动继续...")
+        logger.info("请在浏览器中手动登录 BOSS 直聘，登录后自动继续...")
 
         # 非交互式等待：轮询检查是否已登录
         start_time = time.time()
         while time.time() - start_time < timeout:
             time.sleep(3)
-            # 检查是否已跳转到登录后页面
             if not self._is_login_page():
                 logger.info("登录成功！")
                 self._save_cookies()
@@ -158,10 +67,8 @@ class BossChatHandler:
     def _is_login_page(self) -> bool:
         """判断当前是否需要登录"""
         try:
-            # 如果当前URL包含 login 或 user，说明在登录页
             if 'login' in self.page.url or '/web/user' in self.page.url:
                 return True
-            # 如果能找到聊天列表且URL是chat页面，说明已登录
             if 'chat' in self.page.url:
                 self.page.ele("ul[role='group']", timeout=3)
                 return False
@@ -184,7 +91,6 @@ class BossChatHandler:
         try:
             with open(COOKIE_FILE, "r", encoding="utf-8") as f:
                 cookies = json.load(f)
-            # 使用 CDP Network.setCookie 逐个设置
             for cookie in cookies:
                 self.page.run_js(
                     f"document.cookie = '{cookie['name']}={cookie['value']}; domain={cookie.get('domain', '')}; path=/;'"
@@ -217,27 +123,23 @@ class BossChatHandler:
         try:
             chat_items = self.page.eles("ul[role='group'] > li[role='listitem']")
             for item in chat_items:
-                # 检查是否有未读标记
                 try:
                     badge = item.ele(".notice-badge", timeout=1)
                     count_text = badge.text.strip()
                     count = int(count_text) if count_text else 1
                 except Exception:
-                    continue  # 没有未读标记，跳过
+                    continue
 
-                # 获取聊天名称
                 try:
                     name = item.ele(".name-text", timeout=1).text.strip()
                 except Exception:
                     name = "未知"
 
-                # 获取消息预览
                 try:
                     preview = item.ele(".last-msg-text", timeout=1).text.strip()
                 except Exception:
                     preview = ""
 
-                # 获取可点击区域
                 try:
                     click_area = item.ele(".friend-content", timeout=1)
                 except Exception:
@@ -259,8 +161,7 @@ class BossChatHandler:
     def enter_chat(self, chat_info: dict):
         """点击进入某个聊天，等待聊天内容加载"""
         chat_info["element"].click()
-        time.sleep(2)  # 等待聊天内容加载
-        # 等待输入框可用
+        time.sleep(2)
         try:
             for _ in range(10):
                 ready = self.page.run_js("""
@@ -292,7 +193,6 @@ class BossChatHandler:
                 except Exception:
                     text = ""
 
-                # 判断是否是自己发的（没有 item-friend 类就是自己发的）
                 is_mine = "item-friend" not in (msg.attr("class") or "")
 
                 try:
@@ -329,14 +229,9 @@ class BossChatHandler:
         在当前聊天中输入并发送文字消息。
         输入框: #chat-input.chat-input (contenteditable)
         发送按钮: .btn-send
-
-        Args:
-            text: 要发送的文字
-            retries: 发送失败时的重试次数
         """
         for attempt in range(1, retries + 1):
             try:
-                # 用 JS 输入文字（contenteditable 需要用 textContent）
                 self.page.run_js(f"""
                     const input = document.querySelector('#chat-input');
                     if (input) {{
@@ -349,7 +244,6 @@ class BossChatHandler:
                 """)
                 time.sleep(0.5)
 
-                # 点击发送按钮
                 result = self.page.run_js("""
                     const sendBtn = document.querySelector('.btn-send');
                     if (sendBtn && !sendBtn.classList.contains('disabled')) {
@@ -377,14 +271,9 @@ class BossChatHandler:
     def send_resume(self) -> bool:
         """
         点击发送简历按钮，选择简历并发送。
-        实际流程：
-        1. 点击工具栏的"发简历"按钮，弹出菜单
-        2. 在菜单中点击"附件上传"，打开文件选择对话框
-        3. 选择简历文件（.docx/.pdf）
-        4. 点击"发送"按钮
         """
         try:
-            # 1. 点击"发简历"按钮打开菜单
+            # 1. 点击"发简历"按钮
             self.page.run_js("""
                 const btns = document.querySelectorAll('.toolbar-btn');
                 for (const btn of btns) {
@@ -397,7 +286,7 @@ class BossChatHandler:
             """)
             time.sleep(1)
 
-            # 2. 点击"附件上传"选项
+            # 2. 点击"附件上传"
             result = self.page.run_js("""
                 const items = document.querySelectorAll('.nav-resume-box li');
                 for (const item of items) {
@@ -409,9 +298,9 @@ class BossChatHandler:
                 return 'upload option not found';
             """)
             logger.info(f"选择附件上传: {result}")
-            time.sleep(2)  # 等待对话框打开
+            time.sleep(2)
 
-            # 3. 检查是否有限制弹窗（BOSS限制同时只能有3份附件）
+            # 3. 检查限制弹窗
             limit_dialog = self.page.run_js("""
                 const btns = document.querySelectorAll('button');
                 for (const btn of btns) {
@@ -423,12 +312,11 @@ class BossChatHandler:
                 return 'no limit dialog';
             """)
             if 'dismissed' in str(limit_dialog):
-                logger.warning("BOSS平台限制：同时只能有3份附件文件，无法上传新简历")
+                logger.warning("BOSS平台限制：同时只能有3份附件文件")
                 return False
 
-            # 4. 在对话框中选择简历文件（在线编辑/附件简历）
+            # 4. 选择简历文件
             result = self.page.run_js("""
-                // 查找对话框中的简历列表项
                 const items = document.querySelectorAll('.resume-list-item, .upload-select-item, .dialog-body li');
                 for (const item of items) {
                     const text = item.textContent;
@@ -437,20 +325,12 @@ class BossChatHandler:
                         return 'selected: ' + text.substring(0, 30);
                     }
                 }
-                // 尝试直接找包含文件名的元素
-                const allEles = document.querySelectorAll('.dialog-body *');
-                for (const el of allEles) {
-                    if (el.textContent.includes('.docx') || el.textContent.includes('.pdf')) {
-                        el.click();
-                        return 'selected file: ' + el.textContent.substring(0, 30);
-                    }
-                }
                 return 'no resume found in dialog';
             """)
             logger.info(f"选择简历: {result}")
             time.sleep(0.5)
 
-            # 5. 点击发送按钮（可能需要移除 disabled 类）
+            # 5. 点击发送
             result = self.page.run_js("""
                 const sendBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim() === '发送');
                 if (sendBtn) {
@@ -471,7 +351,7 @@ class BossChatHandler:
     def close(self):
         """关闭浏览器"""
         try:
-            self.page.quit()
+            self.browser.quit()
             logger.info("浏览器已关闭")
         except Exception:
             pass

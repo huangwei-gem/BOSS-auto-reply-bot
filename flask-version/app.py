@@ -21,6 +21,9 @@ from datetime import datetime
 from pathlib import Path
 from flask import Flask, render_template, jsonify, request, send_file
 
+# 关闭 Flask 默认的请求日志（那些 GET /api/... 200 的废话）
+logging.getLogger('werkzeug').setLevel(logging.ERROR)
+
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -311,6 +314,34 @@ def api_logfile(filename):
         return jsonify({"success": False, "message": str(e)})
 
 
+@app.route("/api/browser/detect")
+def api_browser_detect():
+    """检测可用浏览器列表"""
+    from browser_launcher import detect_available_browsers, _preferred_browser
+    browsers = detect_available_browsers()
+    return jsonify({
+        "success": True,
+        "data": {
+            "available": browsers,
+            "selected": _preferred_browser or "",
+            "default": next(iter(browsers), "")  # 按优先级第一个
+        }
+    })
+
+
+@app.route("/api/browser/select", methods=["POST"])
+def api_browser_select():
+    """用户选择浏览器"""
+    from browser_launcher import set_preferred_browser
+    data = request.get_json()
+    name = data.get("browser", "")
+    if name not in ("chrome", "edge", "chromium"):
+        return jsonify({"success": False, "message": "无效的浏览器类型"})
+    set_preferred_browser(name)
+    logging.getLogger("bot").info(f"用户选择浏览器: {name}")
+    return jsonify({"success": True, "message": f"已选择 {name}"})
+
+
 @app.route("/api/test", methods=["POST"])
 def api_test():
     """运行浏览器测试"""
@@ -335,7 +366,7 @@ def api_test():
 
 def main():
     """启动 Flask 应用"""
-    app.run(host="127.0.0.1", port=5000, debug=False)
+    app.run(host="127.0.0.1", port=5001, debug=False)
 
 
 if __name__ == "__main__":

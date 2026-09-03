@@ -27,7 +27,9 @@ COOKIE_FILE = "zhipin_cookies.json"
 # ===================== AI 配置 =====================
 
 # 是否启用 AI 回复（规则未匹配时）
-ENABLE_AI = True
+# 默认关闭，不填 API Key 也能用（仅使用关键词规则回复）
+# 如需 AI 回复，设为 True 并配置 API Key
+ENABLE_AI = False
 
 # AI API 配置（OpenAI 兼容格式）
 # 从环境变量读取 API Key，避免明文存储
