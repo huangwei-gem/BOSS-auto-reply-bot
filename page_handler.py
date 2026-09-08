@@ -41,6 +41,10 @@ class BossChatHandler:
         self.page.get("https://www.zhipin.com")
         time.sleep(1)
 
+        # 处理首次访问弹窗（"我已登录" / "关闭"）
+        # 点击 "我已登录" 无效，必须点 "关闭" 才能关闭弹窗
+        self._dismiss_login_popup()
+
         # 尝试加载已保存的 cookies
         if self._load_cookies():
             self.page.get(CHAT_URL)
@@ -67,6 +71,22 @@ class BossChatHandler:
             logger.debug("等待登录中...")
 
         raise TimeoutError(f"登录超时（{timeout}秒），请重试")
+
+    def _dismiss_login_popup(self):
+        """处理 BOSS 首页首次访问弹窗
+        弹窗有两个按钮："我已登录" 和 "关闭"
+        点击 "我已登录" 不会关闭弹窗，必须点 "关闭"
+        """
+        try:
+            # 尝试找到 "关闭" 按钮并点击
+            close_btn = self.page.ele("text=关闭", timeout=3)
+            if close_btn:
+                close_btn.click()
+                logger.info("已关闭首页弹窗")
+                time.sleep(0.5)
+        except Exception:
+            # 没有弹窗则忽略
+            pass
 
     def _is_login_page(self) -> bool:
         """判断当前是否需要登录"""
