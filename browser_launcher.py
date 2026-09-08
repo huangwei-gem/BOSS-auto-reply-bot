@@ -379,6 +379,9 @@ def _launch_macos(chrome_path: str, port: int) -> BrowserInstance:
         '--disable-gpu',
         '--disable-dev-shm-usage',
         '--disable-extensions',
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--disable-features=DnsOverHttps',
         f'--user-data-dir={user_data_dir}',
         '--remote-allow-origins=*',
         '--window-size=1280,800',
@@ -424,11 +427,14 @@ def _launch_windows(chrome_path: str) -> BrowserInstance:
 
     from DrissionPage import ChromiumPage, ChromiumOptions
 
-    co = ChromiumOptions()
+    co = ChromiumOptions(read_file=False)
     co.set_browser_path(chrome_path)
     co.set_argument('--no-sandbox')
     co.set_argument('--disable-gpu')
     co.set_argument('--disable-dev-shm-usage')
+    co.set_argument('--no-first-run')
+    co.set_argument('--no-default-browser-check')
+    co.set_argument('--disable-features=DnsOverHttps')
     co.set_argument('--window-size=1280,800')
 
     page = ChromiumPage(co)
