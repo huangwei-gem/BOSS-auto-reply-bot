@@ -314,6 +314,46 @@ def api_logfile(filename):
         return jsonify({"success": False, "message": str(e)})
 
 
+@app.route("/api/cookie/status")
+def api_cookie_status():
+    """获取 Cookie 状态"""
+    from config import COOKIE_FILE
+    cookie_path = PROJECT_ROOT / COOKIE_FILE
+    if cookie_path.exists():
+        stat = cookie_path.stat()
+        try:
+            with open(cookie_path, "r", encoding="utf-8") as f:
+                cookies = json.load(f)
+            count = len(cookies)
+        except Exception:
+            count = 0
+        return jsonify({
+            "success": True,
+            "data": {
+                "exists": True,
+                "count": count,
+                "size": stat.st_size,
+                "modified": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                "path": COOKIE_FILE
+            }
+        })
+    return jsonify({"success": True, "data": {"exists": False}})
+
+
+@app.route("/api/cookie/clear", methods=["POST"])
+def api_cookie_clear():
+    """清除已保存的 Cookie"""
+    from config import COOKIE_FILE
+    cookie_path = PROJECT_ROOT / COOKIE_FILE
+    if cookie_path.exists():
+        try:
+            cookie_path.unlink()
+            return jsonify({"success": True, "message": "Cookie 已清除"})
+        except Exception as e:
+            return jsonify({"success": False, "message": str(e)})
+    return jsonify({"success": False, "message": "没有已保存的 Cookie"})
+
+
 @app.route("/api/browser/detect")
 def api_browser_detect():
     """检测可用浏览器列表"""

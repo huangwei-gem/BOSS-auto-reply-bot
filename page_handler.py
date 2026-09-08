@@ -91,11 +91,23 @@ class BossChatHandler:
         try:
             with open(COOKIE_FILE, "r", encoding="utf-8") as f:
                 cookies = json.load(f)
+            if not cookies:
+                return False
             for cookie in cookies:
-                self.page.run_js(
-                    f"document.cookie = '{cookie['name']}={cookie['value']}; domain={cookie.get('domain', '')}; path=/;'"
-                )
-            logger.info(f"已从 {COOKIE_FILE} 加载 Cookie")
+                name = cookie.get("name", "")
+                value = cookie.get("value", "")
+                domain = cookie.get("domain", "")
+                path = cookie.get("path", "/")
+                # domain 为空时不设置 domain 属性，让浏览器自动匹配当前域名
+                if domain:
+                    self.page.run_js(
+                        f"document.cookie = '{name}={value}; domain={domain}; path={path};'"
+                    )
+                else:
+                    self.page.run_js(
+                        f"document.cookie = '{name}={value}; path={path};'"
+                    )
+            logger.info(f"已从 {COOKIE_FILE} 加载 {len(cookies)} 个 Cookie")
             return True
         except FileNotFoundError:
             logger.info("未找到保存的 Cookie，需要手动登录")

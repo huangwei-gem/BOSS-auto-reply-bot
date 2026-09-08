@@ -764,6 +764,27 @@
             <!-- Right Column -->
             <div>
                 <div class="panel glass" style="margin-bottom:20px;">
+                    <div class="panel-header">
+                        <span>🍪 Cookie 登录状态</span>
+                        <button class="panel-header-action" id="btnClearCookie" onclick="clearCookie()">清除</button>
+                    </div>
+                    <div class="panel-body" id="cookiePanel">
+                        <div class="config-item">
+                            <span class="config-key">状态</span>
+                            <span class="config-val" id="cookieStatus">检测中...</span>
+                        </div>
+                        <div class="config-item">
+                            <span class="config-key">Cookie 数量</span>
+                            <span class="config-val" id="cookieCount">--</span>
+                        </div>
+                        <div class="config-item">
+                            <span class="config-key">更新时间</span>
+                            <span class="config-val" id="cookieTime">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel glass" style="margin-bottom:20px;">
                     <div class="panel-header">⚙️ 配置信息</div>
                     <div class="panel-body" id="configPanel">
                         <div class="config-item">
@@ -1038,14 +1059,55 @@
             }
         }
 
+        // ==================== Cookie ====================
+        async function loadCookieStatus() {
+            try {
+                const res = await fetch('/api/cookie/status');
+                const json = await res.json();
+                const data = json.data;
+
+                const statusEl = document.getElementById('cookieStatus');
+                const countEl = document.getElementById('cookieCount');
+                const timeEl = document.getElementById('cookieTime');
+
+                if (data.exists) {
+                    statusEl.textContent = '✅ 已保存';
+                    statusEl.style.color = 'var(--success)';
+                    countEl.textContent = data.count + ' 个';
+                    timeEl.textContent = data.modified;
+                } else {
+                    statusEl.textContent = '⚠️ 未保存';
+                    statusEl.style.color = 'var(--text-muted)';
+                    countEl.textContent = '--';
+                    timeEl.textContent = '登录后自动保存';
+                }
+            } catch (e) {
+                console.error('Cookie status failed:', e);
+            }
+        }
+
+        async function clearCookie() {
+            if (!confirm('确定要清除已保存的 Cookie 吗？下次启动需要重新手动登录。')) return;
+            try {
+                const res = await fetch('/api/cookie/clear', { method: 'POST' });
+                const json = await res.json();
+                alert(json.message);
+                loadCookieStatus();
+            } catch (e) {
+                alert('清除失败: ' + e);
+            }
+        }
+
         // ==================== Init ====================
         setInterval(updateStatus, 2000);
         setInterval(updateLogs, 1000);
+        setInterval(loadCookieStatus, 5000);
 
         updateStatus();
         updateLogs();
         loadConfig();
         loadBrowserSelector();
+        loadCookieStatus();
     </script>
 </body>
 </html>
