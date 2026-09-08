@@ -37,7 +37,11 @@ class BossChatHandler:
         检查登录状态，未登录则等待手动登录。
         登录后保存 cookies 以便下次自动登录。
         """
-        # 先尝试加载已保存的 cookies
+        # 先访问主站，确保 Cookie 作用域正确
+        self.page.get("https://www.zhipin.com")
+        time.sleep(1)
+
+        # 尝试加载已保存的 cookies
         if self._load_cookies():
             self.page.get(CHAT_URL)
             time.sleep(2)
@@ -77,41 +81,22 @@ class BossChatHandler:
             return True
 
     def _save_cookies(self):
-        """保存 cookies 到文件"""
+        """保存 cookies 到文件（使用 DrissionPage 内置方法）"""
         try:
-            cookies = self.page.cookies(all_info=True)
-            with open(COOKIE_FILE, "w", encoding="utf-8") as f:
-                json.dump(list(cookies), f, ensure_ascii=False, indent=2)
+            self.page.save_cookies(COOKIE_FILE)
             logger.info(f"Cookie 已保存到 {COOKIE_FILE}")
         except Exception as e:
             logger.error(f"保存 Cookie 失败: {e}")
 
     def _load_cookies(self) -> bool:
-        """从文件加载 cookies"""
-        try:
-            with open(COOKIE_FILE, "r", encoding="utf-8") as f:
-                cookies = json.load(f)
-            if not cookies:
-                return False
-            for cookie in cookies:
-                name = cookie.get("name", "")
-                value = cookie.get("value", "")
-                domain = cookie.get("domain", "")
-                path = cookie.get("path", "/")
-                # domain 为空时不设置 domain 属性，让浏览器自动匹配当前域名
-                if domain:
-                    self.page.run_js(
-                        f"document.cookie = '{name}={value}; domain={domain}; path={path};'"
-                    )
-                else:
-                    self.page.run_js(
-                        f"document.cookie = '{name}={value}; path={path};'"
-                    )
-            logger.info(f"已从 {COOKIE_FILE} 加载 {len(cookies)} 个 Cookie")
-            return True
-        except FileNotFoundError:
+        """从文件加载 cookies（使用 DrissionPage 内置方法）"""
+        if not os.path.exists(COOKIE_FILE):
             logger.info("未找到保存的 Cookie，需要手动登录")
             return False
+        try:
+            result = self.page.load_cookies(COOKIE_FILE)
+            logger.info(f"已从 {COOKIE_FILE} 加载 Cookie")
+            return True
         except Exception as e:
             logger.error(f"加载 Cookie 失败: {e}")
             return False
