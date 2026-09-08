@@ -81,22 +81,20 @@ class BossChatHandler:
             return True
 
     def _save_cookies(self):
-        """保存 cookies 到文件（使用 DrissionPage 内置方法）"""
+        """保存 cookies 到文件"""
         try:
-            self.page.save_cookies(COOKIE_FILE)
+            self.browser.save_cookies(COOKIE_FILE)
             logger.info(f"Cookie 已保存到 {COOKIE_FILE}")
         except Exception as e:
             logger.error(f"保存 Cookie 失败: {e}")
 
     def _load_cookies(self) -> bool:
-        """从文件加载 cookies（使用 DrissionPage 内置方法）"""
-        if not os.path.exists(COOKIE_FILE):
-            logger.info("未找到保存的 Cookie，需要手动登录")
-            return False
+        """从文件加载 cookies"""
         try:
-            result = self.page.load_cookies(COOKIE_FILE)
-            logger.info(f"已从 {COOKIE_FILE} 加载 Cookie")
-            return True
+            result = self.browser.load_cookies(COOKIE_FILE)
+            if result:
+                logger.info(f"已从 {COOKIE_FILE} 加载 Cookie")
+            return result
         except Exception as e:
             logger.error(f"加载 Cookie 失败: {e}")
             return False

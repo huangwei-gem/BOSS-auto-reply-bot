@@ -260,6 +260,67 @@ class BrowserInstance:
     def cookies(self, all_info=False):
         return self._get_active().cookies(all_info=all_info)
 
+    def save_cookies(self, filepath: str):
+        """保存 cookies 到文件（跨平台，使用 CDP）"""
+        try:
+            # 获取浏览器所有 cookies
+            cookies = self._get_all_cookies()
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(cookies, f, ensure_ascii=False, indent=2)
+            logger.info(f"已保存 {len(cookies)} 个 Cookie 到 {filepath}")
+        except Exception as e:
+            logger.error(f"save_cookies 失败: {e}")
+            raise
+
+    def load_cookies(self, filepath: str) -> bool:
+        """从文件加载 cookies（跨平台，使用 CDP）"""
+        if not os.path.exists(filepath):
+            return False
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                cookies = json.load(f)
+            if not cookies:
+                return False
+            self._set_cookies(cookies)
+            logger.info(f"已从 {filepath} 加载 {len(cookies)} 个 Cookie")
+            return True
+        except Exception as e:
+            logger.error(f"load_cookies 失败: {e}")
+            return False
+
+    def _get_all_cookies(self) -> list:
+        """通过 CDP 获取浏览器所有 cookies"""
+        browser = self._get_browser()
+        if browser is not None:
+            cks = browser._run_cdp('Storage.getCookies')['cookies']
+            return list(cks)
+        # 兜底：用当前页面的 cookies
+        return list(self._get_active().cookies(all_info=True))
+
+    def _set_cookies(self, cookies: list):
+        """通过 CDP 设置 cookies"""
+        browser = self._get_browser()
+        if browser is not None:
+            # 使用 Storage.setCookies（与 DrissionPage 内部一致）
+            browser._run_cdp('Storage.setCookies', cookies=cookies)
+        else:
+            # 兜底：用 document.cookie
+            for c in cookies:
+                name = c.get("name", "")
+                value = c.get("value", "")
+                domain = c.get("domain", "")
+                path = c.get("path", "/")
+                if domain:
+                    self._get_active().run_js(
+                        f"document.cookie = '{name}={value}; domain={domain}; path={path};'"
+                    )
+
+    def _get_browser(self):
+        """获取 Chromium 浏览器对象"""
+        if self._page is not None and hasattr(self._page, 'browser'):
+            return self._page.browser
+        return self._chromium
+
     def quit(self):
         """关闭浏览器"""
         try:
