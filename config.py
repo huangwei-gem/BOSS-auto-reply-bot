@@ -29,25 +29,27 @@ COOKIE_FILE = "zhipin_cookies.json"
 # 是否启用 AI 回复（规则未匹配时）
 # 默认关闭，不填 API Key 也能用（仅使用关键词规则回复）
 # 如需 AI 回复，设为 True 并配置 API Key
-ENABLE_AI = False
+ENABLE_AI = True
 
 # AI API 配置（OpenAI 兼容格式）
 # 从环境变量读取 API Key，避免明文存储
 # 设置环境变量: set AI_API_KEY_1=your_key_here
 AI_API_KEYS = [
-    os.environ.get("AI_API_KEY_1", ""),
-    os.environ.get("AI_API_KEY_2", ""),
+    os.environ.get("AI_API_KEY_1", "sk-P5tZ5ljBOWyNi85fVzabu633Vp88cmP78d4G7279f6k9KNQj"),
+    os.environ.get("AI_API_KEY_2", "sk-F3WGt9cnsCrduZMyhyTYMEEKYJWE1Mzn"),
+    os.environ.get("AI_API_KEY_3", "sk-Pw4XHALKoM3MYleuICN6F2vfp2GP1QUl"),
 ]
 AI_MODELS = [
     os.environ.get("AI_MODEL_1", "agnes-2.5-flash"),
-    os.environ.get("AI_MODEL_2", "agnes-2.5-flash"),
+    os.environ.get("AI_MODEL_2", "deepseek-v4-flash"),
+    os.environ.get("AI_MODEL_3", "deepseek-v4-flash"),
 ]
 AI_BASE_URL = os.environ.get("AI_BASE_URL", "https://apihub.agnes-ai.com/v1")
 
 # 备用 API
 AI_BACKUP_API_KEYS = [
-    os.environ.get("AI_BACKUP_KEY_1", ""),
-    os.environ.get("AI_BACKUP_KEY_2", ""),
+    os.environ.get("AI_BACKUP_KEY_1", "sk-F3WGt9cnsCrduZMyhyTYMEEKYJWE1Mzn"),
+    os.environ.get("AI_BACKUP_KEY_2", "sk-Pw4XHALKoM3MYleuICN6F2vfp2GP1QUl"),
 ]
 AI_BACKUP_MODELS = [
     os.environ.get("AI_BACKUP_MODEL_1", "deepseek-v4-flash"),
