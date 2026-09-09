@@ -3,6 +3,20 @@ BOSS 自动回复机器人 - 配置文件
 """
 
 import os
+from pathlib import Path
+
+# 加载 .env 文件（如果存在）
+_env_path = Path(__file__).parent / ".env"
+if _env_path.exists():
+    with open(_env_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, _, value = line.partition("=")
+                key = key.strip()
+                value = value.strip()
+                if key and not os.environ.get(key):
+                    os.environ[key] = value
 
 # ===================== 基础配置 =====================
 
@@ -27,17 +41,15 @@ COOKIE_FILE = "zhipin_cookies.json"
 # ===================== AI 配置 =====================
 
 # 是否启用 AI 回复（规则未匹配时）
-# 默认关闭，不填 API Key 也能用（仅使用关键词规则回复）
-# 如需 AI 回复，设为 True 并配置 API Key
-ENABLE_AI = True
+ENABLE_AI = os.environ.get("ENABLE_AI", "false").lower() == "true"
 
 # AI API 配置（OpenAI 兼容格式）
 # 从环境变量读取 API Key，避免明文存储
-# 设置环境变量: set AI_API_KEY_1=your_key_here
+# 复制 .env.example 为 .env 并填入你的 API Key
 AI_API_KEYS = [
-    os.environ.get("AI_API_KEY_1", "sk-P5tZ5ljBOWyNi85fVzabu633Vp88cmP78d4G7279f6k9KNQj"),
-    os.environ.get("AI_API_KEY_2", "sk-F3WGt9cnsCrduZMyhyTYMEEKYJWE1Mzn"),
-    os.environ.get("AI_API_KEY_3", "sk-Pw4XHALKoM3MYleuICN6F2vfp2GP1QUl"),
+    os.environ.get("AI_API_KEY_1", ""),
+    os.environ.get("AI_API_KEY_2", ""),
+    os.environ.get("AI_API_KEY_3", ""),
 ]
 AI_MODELS = [
     os.environ.get("AI_MODEL_1", "agnes-2.5-flash"),
@@ -48,8 +60,8 @@ AI_BASE_URL = os.environ.get("AI_BASE_URL", "https://apihub.agnes-ai.com/v1")
 
 # 备用 API
 AI_BACKUP_API_KEYS = [
-    os.environ.get("AI_BACKUP_KEY_1", "sk-F3WGt9cnsCrduZMyhyTYMEEKYJWE1Mzn"),
-    os.environ.get("AI_BACKUP_KEY_2", "sk-Pw4XHALKoM3MYleuICN6F2vfp2GP1QUl"),
+    os.environ.get("AI_BACKUP_KEY_1", ""),
+    os.environ.get("AI_BACKUP_KEY_2", ""),
 ]
 AI_BACKUP_MODELS = [
     os.environ.get("AI_BACKUP_MODEL_1", "deepseek-v4-flash"),
