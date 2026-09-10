@@ -307,6 +307,24 @@
 
         .btn-danger:hover:not(:disabled) {
             background: rgb(239 68 68 / .1);
+        }
+
+        .btn-success {
+            background: #16a34a;
+            color: #fff;
+            border-color: transparent;
+            box-shadow: 0 2px 8px rgb(22 163 74 / .3);
+            animation: pulse-success 2s infinite;
+        }
+
+        .btn-success:hover:not(:disabled) {
+            background: #15803d;
+        }
+
+        @keyframes pulse-success {
+            0%, 100% { box-shadow: 0 2px 8px rgb(22 163 74 / .3); }
+            50% { box-shadow: 0 2px 16px rgb(22 163 74 / .6); }
+        }
             border-color: rgb(239 68 68 / .3);
         }
 
@@ -725,6 +743,7 @@
         <div class="controls">
             <button class="btn btn-primary" id="btnStart" onclick="startBot()">▶ 启动</button>
             <button class="btn btn-danger" id="btnStop" onclick="stopBot()" disabled>⏹ 停止</button>
+            <button class="btn btn-success" id="btnConfirmLogin" onclick="confirmLogin()" style="display:none">✓ 我已登录（保存 Cookie）</button>
             <button class="btn" onclick="refreshUnread()">🔄 刷新未读</button>
             <button class="btn" onclick="showLogFiles()">📁 日志文件</button>
             <div style="flex:1"></div>
@@ -847,16 +866,26 @@
                 const badge = document.getElementById('statusBadge');
                 const statusText = document.getElementById('statusText');
 
-                if (data.running) {
+                // 显示/隐藏"我已登录"按钮
+                const btnConfirmLogin = document.getElementById('btnConfirmLogin');
+                if (data.needs_login) {
+                    badge.className = 'status-badge status-running';
+                    statusText.textContent = '等待登录...';
+                    document.getElementById('btnStart').disabled = true;
+                    document.getElementById('btnStop').disabled = false;
+                    btnConfirmLogin.style.display = '';
+                } else if (data.running) {
                     badge.className = 'status-badge status-running';
                     statusText.textContent = '运行中';
                     document.getElementById('btnStart').disabled = true;
                     document.getElementById('btnStop').disabled = false;
+                    btnConfirmLogin.style.display = 'none';
                 } else {
                     badge.className = 'status-badge status-stopped';
                     statusText.textContent = '已停止';
                     document.getElementById('btnStart').disabled = false;
                     document.getElementById('btnStop').disabled = true;
+                    btnConfirmLogin.style.display = 'none';
                 }
 
                 document.getElementById('statReplies').textContent = data.total_replies;
@@ -951,15 +980,36 @@
         async function startBot() {
             const res = await fetch('/api/start', { method: 'POST' });
             const json = await res.json();
-            alert(json.message);
+            addLog(json.success ? 'SUCCESS' : 'ERROR', json.message);
             updateStatus();
         }
 
         async function stopBot() {
             const res = await fetch('/api/stop', { method: 'POST' });
             const json = await res.json();
-            alert(json.message);
+            addLog(json.success ? 'SUCCESS' : 'ERROR', json.message);
             updateStatus();
+        }
+
+        async function confirmLogin() {
+            addLog('INFO', '正在保存 Cookie...');
+            console.log('[DEBUG] confirmLogin clicked');
+            try {
+                const res = await fetch('/api/cookie/save', { method: 'POST' });
+                console.log('[DEBUG] response status:', res.status);
+                const json = await res.json();
+                console.log('[DEBUG] response json:', json);
+                if (json.success) {
+                    addLog('SUCCESS', '✅ ' + json.message);
+                    document.getElementById('btnConfirmLogin').style.display = 'none';
+                } else {
+                    addLog('ERROR', '❌ ' + json.message);
+                }
+                loadCookieStatus();
+            } catch (e) {
+                console.error('[DEBUG] fetch error:', e);
+                addLog('ERROR', '保存失败: ' + e);
+            }
         }
 
         // ==================== Log Files Modal ====================
@@ -1091,10 +1141,10 @@
             try {
                 const res = await fetch('/api/cookie/clear', { method: 'POST' });
                 const json = await res.json();
-                alert(json.message);
+                addLog(json.success ? 'SUCCESS' : 'ERROR', json.message);
                 loadCookieStatus();
             } catch (e) {
-                alert('清除失败: ' + e);
+                addLog('ERROR', '清除失败: ' + e);
             }
         }
 

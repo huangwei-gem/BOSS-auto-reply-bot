@@ -17,9 +17,15 @@ import logging
 import threading
 import time
 import glob
+import warnings
 from datetime import datetime
 from pathlib import Path
 from flask import Flask, render_template, jsonify, request, send_file
+
+# 抑制 urllib3 LibreSSL 警告（macOS 自带 Python 使用 LibreSSL 而非 OpenSSL）
+warnings.filterwarnings("ignore", category=UserWarning, module="urllib3")
+from urllib3.exceptions import NotOpenSSLWarning
+warnings.filterwarnings("ignore", category=NotOpenSSLWarning)
 
 # 关闭 Flask 默认的请求日志（那些 GET /api/... 200 的废话）
 logging.getLogger('werkzeug').setLevel(logging.ERROR)
@@ -37,11 +43,15 @@ LOG_DIR = PROJECT_ROOT / "logs"
 bot_state = {
     "running": False,
     "logged_in": False,
+    "needs_login": False,
     "total_replies": 0,
     "total_resumes": 0,
     "last_check": None,
     "current_chat": None,
 }
+
+# 全局 handler 引用（用于手动保存 cookie）
+_bot_handler = None
 
 # 日志存储
 log_buffer = []
@@ -108,23 +118,71 @@ def run_bot_loop():
     """机器人主循环（在后台线程运行）"""
     from page_handler import BossChatHandler
     from reply_engine import ReplyEngine
-    from config import CHECK_INTERVAL
+    from state_store import StateStore
+    from stats import Stats
+    from notify import Notifier
+    from config import CHECK_INTERVAL, CONTEXT_MESSAGE_COUNT, PAUSE_ON_IMPORTANT, RESUME_SEND_ONCE
 
-    global bot_state
+    global bot_state, _bot_handler
 
     logger = logging.getLogger("bot")
     handler = BossChatHandler()
+    _bot_handler = handler
     engine = ReplyEngine()
+    state = StateStore()
+    stats = Stats()
+    notifier = Notifier()
 
     try:
         # 登录
         logger.info("正在检查登录状态...")
-        handler.login()
-        bot_state["logged_in"] = True
-        logger.info("登录成功")
+        logged_in = handler.login()
+        if logged_in:
+            bot_state["logged_in"] = True
+            bot_state["needs_login"] = False
+            logger.info("登录成功")
+        else:
+            # 需要手动登录 — 通知前端显示按钮
+            bot_state["needs_login"] = True
+            bot_state["logged_in"] = False
+            logger.info("等待用户在浏览器登录后点击「我已登录」按钮...")
+            # 等待用户点击按钮（confirm_and_save 会设置 _login_event）
+            if not handler.wait_for_login_confirm(timeout=300):
+                logger.error("登录超时")
+                bot_state["running"] = False
+                return
+            bot_state["needs_login"] = False
+            bot_state["logged_in"] = True
+            logger.info("用户已确认登录，Cookie 已保存")
 
         while bot_state["running"]:
             try:
+                # 健康检查：登录失效 / 验证码
+                health = handler.check_health()
+                if health == "need_login":
+                    logger.error("登录已失效，请重新登录！")
+                    notifier.send_notification("登录失效", "BOSS 直聘登录已失效，请重新登录。", "error")
+                    bot_state["logged_in"] = False
+                    bot_state["needs_login"] = True
+                    time.sleep(30)
+                    continue
+                if health == "captcha":
+                    logger.warning("检测到安全验证/验证码，暂停 60 秒...")
+                    notifier.send_notification("安全验证", "检测到安全验证/验证码，请人工处理！", "warning")
+                    time.sleep(60)
+                    continue
+
+                # 频率限制
+                if not engine.can_reply():
+                    logger.warning("已达到每小时回复上限，等待...")
+                    time.sleep(60)
+                    continue
+
+                # 人工接管模式提示
+                if state.is_paused():
+                    info = state.pause_info()
+                    logger.info(f"人工接管模式中（{info.get('reason', '')}），仅监控不回复...")
+
                 # 获取未读聊天
                 handler.go_to_chat()
                 unread_chats = handler.get_unread_chats()
@@ -139,36 +197,88 @@ def run_bot_loop():
 
                         name = chat_info["name"]
                         bot_state["current_chat"] = name
+
+                        # 人工接管模式：不自动回复
+                        if state.is_paused():
+                            logger.info("人工接管模式中，跳过自动回复")
+                            break
+
                         logger.info(f"处理与 [{name}] 的聊天")
 
                         # 进入聊天
                         handler.enter_chat(chat_info)
 
-                        # 读取消息
-                        messages = handler.read_latest_messages(5)
+                        # 读取消息（多轮上下文）
+                        messages = handler.read_latest_messages(CONTEXT_MESSAGE_COUNT)
                         if messages:
-                            # 找最后一条对方发的消息
+                            # 找最后一条对方发的消息（is_mine=False 表示对方）
                             latest = None
                             for msg in reversed(messages):
-                                if not msg["is_mine"]:
-                                    latest = msg["text"]
+                                if not msg.get("is_mine"):
+                                    latest = msg.get("text", "")
                                     break
 
                             if latest:
                                 logger.info(f"对方消息: {latest[:50]}...")
 
+                                # 去重检查
+                                if state.was_handled(name, latest):
+                                    logger.info("该消息已处理过，跳过")
+                                    stats.record_skip()
+                                    continue
+
+                                boss_name = handler.get_boss_name()
+                                job_name = handler.get_job_name()
+
                                 # 获取回复
-                                action, content = engine.get_reply(latest)
+                                action, content, meta = engine.get_reply(
+                                    messages, boss_name, job_name, chat_name=name)
 
+                                # 重要事件：通知 + 可选转人工
+                                if notifier.notify_if_important(
+                                        latest, chat_name=name, job_name=job_name,
+                                        intent=meta.get("intent", "")):
+                                    stats.record_important()
+                                    if PAUSE_ON_IMPORTANT:
+                                        state.pause(reason=f"收到重要消息: {latest[:50]}", chat_name=name)
+                                        notifier.send_notification(
+                                            "机器人已暂停，转人工模式",
+                                            "检测到重要消息，自动回复已暂停。",
+                                            "info")
+                                        logger.warning("已切换为人工接管模式")
+
+                                # 简历去重降级
+                                if action == "resume" and RESUME_SEND_ONCE and state.resume_sent(name):
+                                    from config import RESUME_DUPLICATE_REPLY
+                                    logger.info("该会话已发送过简历，降级为文字提醒")
+                                    action, content = "text", RESUME_DUPLICATE_REPLY
+                                    meta["source"] = "intent"
+
+                                # 执行回复
                                 if action == "resume":
-                                    handler.send_resume()
-                                    bot_state["total_resumes"] += 1
-                                    logger.info("已发送简历")
+                                    engine.wait_human_delay()
+                                    if handler.send_resume():
+                                        state.mark_resume_sent(name)
+                                        stats.record_reply(source=meta.get("source", "rule"), action="resume")
+                                        bot_state["total_resumes"] += 1
+                                        logger.info("已发送简历")
+                                    else:
+                                        stats.record_reply(source=meta.get("source", "rule"), action="skip")
+                                        logger.warning("简历发送失败")
                                 elif action == "text" and content:
-                                    handler.send_text(content)
-                                    bot_state["total_replies"] += 1
-                                    logger.info(f"已回复: {content[:30]}...")
+                                    engine.wait_human_delay()
+                                    if handler.send_text(content):
+                                        stats.record_reply(source=meta.get("source", "rule"), action="text")
+                                        bot_state["total_replies"] += 1
+                                        logger.info(f"已回复: {content[:30]}...")
+                                    else:
+                                        stats.record_reply(source=meta.get("source", "rule"), action="skip")
+                                else:
+                                    logger.info("无合适回复，跳过")
+                                    stats.record_reply(source=meta.get("source", "default"), action="skip")
 
+                                # 记录已处理
+                                state.mark_handled(name, latest, action or "none")
                                 engine.record_reply()
 
                         engine.wait_human_delay()
@@ -199,10 +309,52 @@ def index():
 @app.route("/api/status")
 def api_status():
     """获取当前状态"""
-    return jsonify({
-        "success": True,
-        "data": bot_state
-    })
+    from state_store import StateStore
+    data = dict(bot_state)
+    try:
+        state = StateStore()
+        data["paused"] = state.is_paused()
+        if state.is_paused():
+            data["pause_info"] = state.pause_info()
+    except Exception:
+        data["paused"] = False
+    return jsonify({"success": True, "data": data})
+
+
+@app.route("/api/notifications")
+def api_notifications():
+    """获取通知列表"""
+    from notify import Notifier
+    notifier = Notifier()
+    limit = request.args.get("limit", 50, type=int)
+    return jsonify({"success": True, "data": notifier.records(limit)})
+
+
+@app.route("/api/stats")
+def api_stats():
+    """获取统计数据"""
+    from stats import Stats
+    return jsonify({"success": True, "data": Stats().summary()})
+
+
+@app.route("/api/pause", methods=["POST"])
+def api_pause():
+    """切换为人工接管模式（暂停自动回复）"""
+    from state_store import StateStore
+    data = request.get_json(silent=True) or {}
+    StateStore().pause(reason=data.get("reason", "手动暂停"))
+    logging.getLogger("bot").info("已切换为人工接管模式")
+    return jsonify({"success": True, "message": "已暂停自动回复（人工接管模式）"})
+
+
+@app.route("/api/resume", methods=["POST"])
+def api_resume():
+    """恢复自动回复"""
+    from state_store import StateStore
+    resumed = StateStore().resume()
+    msg = "已恢复自动回复" if resumed else "当前未处于暂停状态"
+    logging.getLogger("bot").info(msg)
+    return jsonify({"success": True, "message": msg})
 
 
 @app.route("/api/logs")
@@ -338,6 +490,28 @@ def api_cookie_status():
             }
         })
     return jsonify({"success": True, "data": {"exists": False}})
+
+
+@app.route("/api/cookie/save", methods=["POST"])
+def api_cookie_save():
+    """用户点击「我已登录」按钮 — 保存 Cookie 并通知机器人继续"""
+    global bot_state, _bot_handler
+
+    if _bot_handler is None:
+        return jsonify({"success": False, "message": "浏览器未启动，请先启动机器人"})
+
+    try:
+        # 调用 confirm_and_save：导航到站 → 保存 Cookie → 触发事件唤醒机器人线程
+        success = _bot_handler.confirm_and_save()
+        if success:
+            bot_state["needs_login"] = False
+            bot_state["logged_in"] = True
+            return jsonify({"success": True, "message": "Cookie 已保存，登录成功！"})
+        else:
+            return jsonify({"success": False, "message": "保存失败，请确认已在浏览器中完成登录"})
+    except Exception as e:
+        logging.getLogger("bot").error(f"confirm_and_save 异常: {e}")
+        return jsonify({"success": False, "message": f"保存失败: {e}"})
 
 
 @app.route("/api/cookie/clear", methods=["POST"])

@@ -20,3 +20,8 @@ venv/
 # 日志
 *.log
 
+# Claude Code
+.agents/
+.claude/
+skills-lock.json
+

@@ -12,10 +12,11 @@ import time
 import json
 import logging
 import platform
+import threading
 from typing import List, Optional, Dict
 from pathlib import Path
 
-from config import CHAT_URL, COOKIE_FILE
+from config import CHAT_URL, COOKIE_FILE, TEST_MODE, TEST_PAGE
 from browser_launcher import launch_browser, BrowserInstance
 
 logger = logging.getLogger(__name__)
@@ -31,17 +32,27 @@ class BossChatHandler:
         self.browser: BrowserInstance = launch_browser()
         self.page = self.browser.page
         self._logged_in = False
+        self._login_event = threading.Event()
 
-    def login(self, timeout: int = 120):
+    def login(self, timeout: int = 300) -> bool:
         """
-        检查登录状态，未登录则等待手动登录。
-        登录后保存 cookies 以便下次自动登录。
+        检查登录状态。
+        返回 True = 已登录，False = 需要手动登录。
         """
+        if TEST_MODE:
+            # 测试模式：直接打开本地 mock 页面，视为已登录
+            url = TEST_PAGE if TEST_PAGE.startswith("file:") else f"file://{TEST_PAGE}"
+            self.page.get(url)
+            time.sleep(1)
+            self._logged_in = True
+            logger.info("[TEST_MODE] 已打开 mock 页面，视为已登录")
+            return True
+
         # 先访问主站，确保 Cookie 作用域正确
         self.page.get("https://www.zhipin.com")
         time.sleep(2)
 
-        # 处理首次访问弹窗（"我已登录" / "关闭"）
+        # 处理首次访问弹窗
         self._dismiss_login_popup()
 
         # 尝试加载已保存的 cookies
@@ -51,25 +62,41 @@ class BossChatHandler:
             if not self._is_login_page():
                 logger.info("通过 Cookie 自动登录成功")
                 self._logged_in = True
-                return
+                return True
 
         # 需要手动登录
-        logger.info(f"需要登录，正在跳转到登录页面...（{timeout}秒内完成）")
+        logger.info("需要登录，正在跳转到登录页面...")
         self.page.get("https://www.zhipin.com/web/user/?ka=header-login")
-        logger.info("请在浏览器中手动登录 BOSS 直聘，登录后自动继续...")
+        logger.info("请在浏览器中手动登录 BOSS 直聘，登录完成后点击网页上的「我已登录」按钮")
+        self._logged_in = False
+        return False
 
-        # 非交互式等待：轮询检查是否已登录
-        start_time = time.time()
-        while time.time() - start_time < timeout:
-            time.sleep(3)
-            if not self._is_login_page():
-                logger.info("登录成功！")
-                self._save_cookies()
-                self._logged_in = True
-                return
-            logger.debug("等待登录中...")
+    def wait_for_login_confirm(self, timeout: int = 300) -> bool:
+        """等待用户点击「我已登录」按钮（由 API 端点调用 confirm_login 来唤醒）。"""
+        if self._login_event.wait(timeout=timeout):
+            self._login_event.clear()
+            return True
+        return False
 
-        raise TimeoutError(f"登录超时（{timeout}秒），请重试")
+    def confirm_and_save(self) -> bool:
+        """前端「我已登录」按钮调用 — 保存 Cookie 并通知机器人继续。"""
+        try:
+            logger.info("用户确认登录，正在保存 Cookie...")
+            # 导航到主站确保 Cookie 作用域正确
+            self.page.get("https://www.zhipin.com")
+            time.sleep(2)
+            self._dismiss_login_popup()
+            time.sleep(0.5)
+            # 保存 Cookie
+            self._save_cookies()
+            self._logged_in = True
+            # 唤醒等待中的机器人线程
+            self._login_event.set()
+            logger.info("✅ Cookie 已保存，登录完成")
+            return True
+        except Exception as e:
+            logger.error(f"确认登录失败: {e}")
+            return False
 
     def _dismiss_login_popup(self):
         """处理 BOSS 首页首次访问弹窗"""
@@ -86,7 +113,7 @@ class BossChatHandler:
         """判断当前是否需要登录"""
         try:
             url = self.page.url or ""
-            if "login" in url or "/web/user" in url:
+            if "login" in url or "/web/user" in url or "passport" in url:
                 return True
             if "chat" in url or "geek" in url:
                 # 检查是否有聊天列表
@@ -100,12 +127,42 @@ class BossChatHandler:
             return True
 
     def _save_cookies(self):
-        """保存 cookies 到文件"""
+        """保存 cookies 到文件（使用 CDP 获取完整 Cookie，包括 HttpOnly）"""
         try:
-            self.browser.save_cookies(COOKIE_FILE)
-            logger.info(f"Cookie 已保存到 {COOKIE_FILE}")
+            cookies = self._get_all_cookies()
+            if cookies:
+                with open(COOKIE_FILE, "w", encoding="utf-8") as f:
+                    json.dump(cookies, f, ensure_ascii=False, indent=2)
+                logger.info(f"Cookie 已保存到 {COOKIE_FILE} ({len(cookies)} 个)")
+            else:
+                # 兜底：用 DrissionPage 自带方法
+                self.browser.save_cookies(COOKIE_FILE)
+                logger.info(f"Cookie 已保存到 {COOKIE_FILE}（兜底方式）")
         except Exception as e:
             logger.error(f"保存 Cookie 失败: {e}")
+
+    def _get_all_cookies(self) -> list:
+        """通过 CDP 获取所有 Cookie（包括 HttpOnly）"""
+        try:
+            browser = self._get_browser_obj()
+            if browser is not None:
+                result = browser._run_cdp('Storage.getCookies')
+                return list(result.get('cookies', []))
+        except Exception:
+            pass
+        # 兜底
+        try:
+            return list(self.browser.cookies())
+        except Exception:
+            return []
+
+    def _get_browser_obj(self):
+        """获取底层 Chromium 对象"""
+        if hasattr(self.browser, 'browser'):
+            return self.browser.browser
+        if hasattr(self.browser, '_chromium'):
+            return self.browser._chromium
+        return None
 
     def _load_cookies(self) -> bool:
         """从文件加载 cookies"""
@@ -118,8 +175,28 @@ class BossChatHandler:
             logger.error(f"加载 Cookie 失败: {e}")
             return False
 
+    def save_cookies_manual(self) -> bool:
+        """手动保存 Cookie（用户点击"已登录"按钮后调用）"""
+        try:
+            # 先导航到主站确保 cookie 作用域正确
+            self.page.get("https://www.zhipin.com")
+            time.sleep(1)
+            self._dismiss_login_popup()
+            time.sleep(0.5)
+            self._save_cookies()
+            return True
+        except Exception as e:
+            logger.error(f"手动保存 Cookie 失败: {e}")
+            return False
+
     def go_to_chat(self):
         """导航到聊天页面"""
+        if TEST_MODE:
+            url = TEST_PAGE if TEST_PAGE.startswith("file:") else f"file://{TEST_PAGE}"
+            if not (self.page.url or "").startswith("file:"):
+                self.page.get(url)
+                time.sleep(1)
+            return
         current_url = self.page.url or ""
         if CHAT_URL not in current_url:
             self.page.get(CHAT_URL)
@@ -147,12 +224,13 @@ class BossChatHandler:
                     var unread = [];
                     for (var i = 0; i < friendEls.length; i++) {
                         var el = friendEls[i];
-                        // 检查是否有未读标记
+                        // 检查是否有未读标记（必须可见且有计数文本）
                         var badge = el.querySelector(".notice-badge");
                         if (!badge) continue;
-
+                        if (badge.offsetParent === null) continue;
                         var countText = badge.textContent.trim();
-                        var count = countText ? parseInt(countText) || 1 : 1;
+                        if (!countText) continue;
+                        var count = parseInt(countText) || 1;
 
                         var nameEl = el.querySelector(".name-text");
                         var name = nameEl ? nameEl.textContent.trim() : "未知";
@@ -173,11 +251,9 @@ class BossChatHandler:
 
             if result:
                 unread_chats = json.loads(result)
-                # 保存元素引用以便后续点击
-            for chat in unread_chats:
-                # 找到对应的 DOM 元素
-                el = self.page.eles('.friend-content')[chat['index']]
-                chat['element'] = el
+            # 注意：不保存 DrissionPage element 引用。
+            # 实测 eles() 返回数量与 DOM 不一致（会话卡片 active 时漏元素），
+            # 统一用 JS 按 index 点击（与扫描同一 DOM 顺序，索引绝对一致）。
 
         except Exception as e:
             logger.error(f"获取未读聊天列表失败: {e}")
@@ -186,16 +262,17 @@ class BossChatHandler:
         return unread_chats
 
     def enter_chat(self, chat_info: dict):
-        """点击进入某个聊天，等待聊天内容加载"""
-        if 'element' in chat_info:
-            chat_info['element'].click()
-        else:
-            # 用 JS 点击
-            idx = chat_info.get('index', 0)
-            self.page.run_js(
-                f'document.querySelectorAll(".friend-content")[{idx}].click()',
-                as_expr=True
-            )
+        """点击进入某个聊天，等待聊天内容加载
+
+        注意：使用 JS 点击（与 get_unread_chats 扫描同一 DOM 顺序）。
+        实测 element.click() 坐标点击在 Retina 屏偏移、
+        element 引用与 JS 索引错位，均会点错会话。
+        """
+        idx = chat_info.get('index', 0)
+        self.page.run_js(
+            f'document.querySelectorAll(".friend-content")[{idx}].click()',
+            as_expr=True
+        )
         time.sleep(3)
 
         # 等待输入框加载
@@ -236,7 +313,8 @@ class BossChatHandler:
                         result.push({{
                             text: textEl ? textEl.textContent.trim() : "",
                             time: timeEl ? timeEl.textContent.trim() : "",
-                            isFriend: cls.indexOf("item-friend") >= 0
+                            isFriend: cls.indexOf("item-friend") >= 0,
+                            is_mine: cls.indexOf("item-friend") < 0
                         }});
                     }}
                     return JSON.stringify(result);
@@ -391,10 +469,63 @@ class BossChatHandler:
             )()''', as_expr=True)
             logger.info(f"发送简历结果: {result}")
             time.sleep(3)
-            return result and 'sent' in str(result)
+
+            if not (result and 'sent' in str(result)):
+                return False
+
+            # 4. 送达验证：弹窗应已关闭，消息列表应出现简历消息
+            return self._verify_resume_sent()
         except Exception as e:
             logger.error(f"发送简历失败: {e}")
             return False
+
+    def _verify_resume_sent(self, timeout: int = 5) -> bool:
+        """验证简历是否发送成功：弹窗关闭 + 消息列表出现简历项"""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                result = self.page.run_js('''(
+                    function() {
+                        var dialog = document.querySelector(".choose-resume-dialog");
+                        var dialogVisible = dialog && dialog.offsetParent !== null;
+                        if (dialogVisible) return "dialog visible";
+                        var items = document.querySelectorAll(".message-item .text-content");
+                        var last = items.length ? items[items.length - 1].textContent : "";
+                        if (last.indexOf("简历") >= 0) return "delivered";
+                        return "pending";
+                    }
+                )()''', as_expr=True)
+                if result == "delivered":
+                    logger.info("简历送达验证通过")
+                    return True
+            except Exception:
+                pass
+            time.sleep(1)
+        logger.warning("简历送达验证超时，按失败处理")
+        return False
+
+    def check_health(self) -> str:
+        """
+        健康检查：检测登录态和验证码拦截。
+        返回: 'ok' | 'need_login' | 'captcha'
+        """
+        if TEST_MODE:
+            return "ok"
+        try:
+            url = self.page.url or ""
+            if "login" in url or "/web/user" in url or "passport" in url:
+                return "need_login"
+            result = self.page.run_js('''(
+                function() {
+                    var body = document.body ? document.body.innerText : "";
+                    if (body.indexOf("安全验证") >= 0 || body.indexOf("验证码") >= 0) return "captcha";
+                    if (document.querySelector(".nc-container, .verify-wrap, .geetest_panel")) return "captcha";
+                    return "ok";
+                }
+            )()''', as_expr=True)
+            return result if result in ("ok", "captcha") else "ok"
+        except Exception:
+            return "ok"
 
     def close(self):
         """关闭浏览器"""
