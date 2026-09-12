@@ -6,10 +6,10 @@ BOSS 自动回复机器人 - AI 提示词模板
 - 用户提示词包含多轮对话历史，保证回复连贯
 """
 
-from config import USER_PROFILE
+from config import USER_PROFILE, _OVERRIDES
 
 # AI 系统提示词 - 行为准则（固定部分）
-_SYSTEM_RULES = """你的回复要求：
+_SYSTEM_RULES_DEFAULT = """你的回复要求：
 1. 语气专业、礼貌、真诚，不要过于机械
 2. 简洁明了，控制在 1-2 句话，不要长篇大论
 3. 展现积极态度和学习能力
@@ -17,7 +17,19 @@ _SYSTEM_RULES = """你的回复要求：
 5. 如果对方问了你不知道的问题，诚实说可以面谈详细了解
 6. 不要使用 emoji，保持专业
 7. 只输出回复内容本身，不要加引号或任何前缀
-8. 结合上面的对话历史自然接续话题，不要重复已经说过的内容"""
+8. 结合上面的对话历史自然接续话题，不要重复已经说过的内容
+9. 严格禁止声称已经完成了无法确认的事情（如"已投递简历""已发送材料""已经报名"），除非对话历史中确实发生过；对方要求你做某事时，回复"稍后完成/马上处理"即可
+10. 如果对方的岗位与你的求职方向明显不符，礼貌说明求职方向并询问是否有相关岗位，不要强行迎合"""
+
+_SYSTEM_RULES = _OVERRIDES.get("system_rules", _SYSTEM_RULES_DEFAULT)
+USER_PROMPT_TEMPLATE = _OVERRIDES.get("user_prompt_template", """当前聊天上下文：
+- 招聘方称呼：{boss_name}
+- 招聘岗位：{job_name}
+- 最近对话记录：
+{history}
+- 对方最新消息：{message}
+
+请根据对话历史和最新消息，给出合适的回复。只输出回复内容，不要解释。""")
 
 
 def build_system_prompt(profile: dict = None) -> str:
@@ -51,15 +63,7 @@ def build_system_prompt(profile: dict = None) -> str:
 # 默认系统提示词（模块加载时生成一次）
 SYSTEM_PROMPT = build_system_prompt()
 
-# 用户消息模板 - 带多轮上下文
-USER_PROMPT_TEMPLATE = """当前聊天上下文：
-- 招聘方称呼：{boss_name}
-- 招聘岗位：{job_name}
-- 最近对话记录：
-{history}
-- 对方最新消息：{message}
-
-请根据对话历史和最新消息，给出合适的回复。只输出回复内容，不要解释。"""
+# 用户消息模板 - 带多轮上下文（已在上方从覆盖加载）
 
 
 def build_conversation_history(messages: list) -> str:

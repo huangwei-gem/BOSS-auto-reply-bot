@@ -31,11 +31,9 @@ cd sturgeon
 
 #### 3. 首次使用
 1. 启动后浏览器窗口会自动打开
-2. 如果 Cookie 已过期，会跳转到登录页面
-3. 在浏览器中手动登录 BOSS 直聘
-4. 登录完成后，点击网页上的 **「✓ 我已登录（保存 Cookie）」** 绿色按钮
-5. 后端通过 CDP 获取完整 Cookie（含 HttpOnly）并保存
-6. 后续启动自动登录，无需重复操作
+2. 手动登录 BOSS 直聘
+3. 登录后 Cookie 自动保存到 `zhipin_cookies.json`
+4. 后续启动自动登录，无需重复操作
 
 #### 4. 配置个人画像
 编辑 `user_profile.json`，填入你的求职信息：
@@ -104,15 +102,14 @@ sturgeon/
 
 持续监控 BOSS 直聘聊天页面的未读消息，自动回复。
 
-**AI 定制化回复（所有消息都走 AI）：**
-
-所有招聘方消息都经过 AI 生成定制化回复，结合上下文（招聘方称呼、岗位、消息内容）生成个性化内容。
+**四级回复决策：**
 
 | 层级 | 说明 | 示例 |
 |------|------|------|
-| 1. AI 定制化 | OpenAI 兼容 API，带入上下文生成个性化回复 | "你好" → "您好！我对这个数据分析岗位很感兴趣..." |
-| 2. 规则兜底 | AI 失败时，关键词规则保底 | "简历" → 发简历；"薪资" → 期望薪资话术 |
-| 3. 默认兜底 | 都失败时的安全回复 | "好的，感谢您的消息，我会尽快回复您。" |
+| 1. 关键词规则 | `REPLY_RULES` 精确命中，最高优先级 | "简历" → 发简历；"薪资" → 画像话术 |
+| 2. 意图识别 | `intent.py` 正则模式识别 8 种意图，语义更精准 | "预算范围多少" → ask_salary（区分"问薪资"与"报薪资"） |
+| 3. AI 生成 | OpenAI 兼容 API，带入多轮对话历史 + 画像 | 规则/意图均未命中时，AI 接续话题 |
+| 4. 兜底 | `AI_FAIL_ACTION` 配置：`skip`（跳过）或 `default`（默认话术） | AI 全挂时宁可不回复，不发驴唇不对马嘴的话 |
 
 **意图分类（`intent.py`）：**
 
@@ -131,12 +128,6 @@ sturgeon/
 - 面试邀约 / offer / 入职等关键词命中 → 自动通知 + 暂停转人工
 - 通知写入 `notifications.json`，可选 Webhook 推送（企业微信/飞书/钉钉）
 - 暂停后机器人仅监控不回复，通过 Flask `/api/resume` 或删除 `bot_state.json` 恢复
-
-**手动保存 Cookie：**
-- 当 Cookie 过期时，前端显示绿色脉冲「✓ 我已登录（保存 Cookie）」按钮
-- 用户在浏览器登录 BOSS 后点击按钮
-- 后端通过 CDP（Chrome DevTools Protocol）获取完整 Cookie（含 HttpOnly）
-- 保存成功后机器人继续运行
 
 **防重复与防滥用：**
 - 已处理消息哈希去重（重启不重复回复同一条消息）
@@ -266,17 +257,6 @@ python test_full_run.py
 - API Key 通过环境变量读取，不存储在代码中
 - `.gitignore` 已排除 `.env`、`zhipin_cookies.json`、`bot_state.json`、`bot_stats.json`、`notifications.json` 等敏感文件
 - Cookie 文件请妥善保管，不要上传到公开仓库
-
-## AI 提供商配置
-
-支持多个 AI 提供商自动容灾切换：
-
-| 提供商 | API 地址 | 模型 |
-|--------|---------|------|
-| Agnes | `https://apihub.agnes-ai.com/v1` | agnes-2.5-flash |
-| SenseNova | `https://token.sensenova.cn/v1` | deepseek-v4-flash |
-
-在 `.env` 文件中配置多个 API Key，主 API 失败时自动切换到备用 API。
 
 ## 依赖
 

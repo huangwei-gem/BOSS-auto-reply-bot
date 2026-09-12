@@ -75,43 +75,17 @@ class WebLogHandler(logging.Handler):
             log_buffer.pop(0)
 
 
-# 同时写入日志文件
-def setup_file_logger():
-    """设置日志文件输出，带自动清理"""
-    LOG_DIR.mkdir(exist_ok=True)
-    log_file = LOG_DIR / f"bot_{datetime.now().strftime('%Y%m%d')}.log"
 
-    file_handler = logging.FileHandler(log_file, encoding="utf-8")
-    file_handler.setLevel(logging.INFO)
-    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
-    file_handler.setFormatter(formatter)
+# 配置日志：控制台/文件走 logging_setup（详细格式），Web 流走 WebLogHandler
+from logging_setup import setup_logging, cleanup_old_logs
+setup_logging()
 
-    # 自动清理：只保留最近7天的日志
-    cleanup_old_logs()
-
-    return file_handler
-
-
-def cleanup_old_logs():
-    """清理7天前的日志文件"""
-    if not LOG_DIR.exists():
-        return
-    now = time.time()
-    max_age = 7 * 24 * 3600  # 7天
-    for log_file in LOG_DIR.glob("*.log"):
-        if now - log_file.stat().st_mtime > max_age:
-            try:
-                log_file.unlink()
-            except:
-                pass
-
-
-# 配置日志
 web_handler = WebLogHandler()
 web_handler.setLevel(logging.INFO)
 logging.getLogger().addHandler(web_handler)
-logging.getLogger().addHandler(setup_file_logger())
 logging.getLogger().setLevel(logging.INFO)
+
+from event_logger import get_event_logger
 
 
 def run_bot_loop():
@@ -126,6 +100,7 @@ def run_bot_loop():
     global bot_state, _bot_handler
 
     logger = logging.getLogger("bot")
+    events = get_event_logger()
     handler = BossChatHandler()
     _bot_handler = handler
     engine = ReplyEngine()
@@ -190,6 +165,8 @@ def run_bot_loop():
 
                 if unread_chats:
                     logger.info(f"发现 {len(unread_chats)} 个未读会话")
+                else:
+                    pass
 
                     for chat_info in unread_chats:
                         if not bot_state["running"]:
@@ -201,16 +178,23 @@ def run_bot_loop():
                         # 人工接管模式：不自动回复
                         if state.is_paused():
                             logger.info("人工接管模式中，跳过自动回复")
+                            events.event("skip", chat=name, reason="paused")
                             break
 
                         logger.info(f"处理与 [{name}] 的聊天")
 
-                        # 进入聊天
-                        handler.enter_chat(chat_info)
+                        # 进入聊天（带切换校验）
+                        if not handler.enter_chat(chat_info):
+                            logger.warning(f"会话 [{name}] 切换校验失败，本次跳过")
+                            events.event("skip", chat=name, reason="switch_verify_failed")
+                            continue
 
                         # 读取消息（多轮上下文）
                         messages = handler.read_latest_messages(CONTEXT_MESSAGE_COUNT)
-                        if messages:
+                        if not messages:
+                            logger.info("未读取到消息，跳过")
+                            events.event("skip", chat=name, reason="no_messages")
+                        else:
                             # 找最后一条对方发的消息（is_mine=False 表示对方）
                             latest = None
                             for msg in reversed(messages):
@@ -218,13 +202,18 @@ def run_bot_loop():
                                     latest = msg.get("text", "")
                                     break
 
-                            if latest:
+                            if not latest:
+                                logger.info("最新消息是自己发的，无需回复")
+                                events.event("skip", chat=name, reason="latest_is_mine")
+                            else:
                                 logger.info(f"对方消息: {latest[:50]}...")
 
                                 # 去重检查
                                 if state.was_handled(name, latest):
                                     logger.info("该消息已处理过，跳过")
                                     stats.record_skip()
+                                    events.event("skip", chat=name, reason="duplicate",
+                                                 message=latest[:120])
                                     continue
 
                                 boss_name = handler.get_boss_name()
@@ -261,21 +250,38 @@ def run_bot_loop():
                                         state.mark_resume_sent(name)
                                         stats.record_reply(source=meta.get("source", "rule"), action="resume")
                                         bot_state["total_resumes"] += 1
+                                        events.event("send", chat=name, type="resume", ok=True)
                                         logger.info("已发送简历")
                                     else:
+                                        # 简历发送失败：降级为文字告知 + 通知
+                                        from config import RESUME_UNAVAILABLE_REPLY
+                                        logger.warning("简历发送失败，降级为文字告知")
+                                        engine.wait_human_delay()
+                                        handler.send_text(RESUME_UNAVAILABLE_REPLY)
+                                        notifier.send_notification(
+                                            "简历发送失败",
+                                            f"[{name}]（{job_name or '未知岗位'}）请求简历但发送失败，请检查 BOSS 账号的简历设置。",
+                                            "warning")
                                         stats.record_reply(source=meta.get("source", "rule"), action="skip")
-                                        logger.warning("简历发送失败")
+                                        events.event("send", chat=name, type="resume", ok=False,
+                                                     fallback="text", message=latest[:120])
                                 elif action == "text" and content:
                                     engine.wait_human_delay()
                                     if handler.send_text(content):
                                         stats.record_reply(source=meta.get("source", "rule"), action="text")
                                         bot_state["total_replies"] += 1
+                                        events.event("send", chat=name, type="text", ok=True,
+                                                     reply=content[:120], source=meta.get("source", ""))
                                         logger.info(f"已回复: {content[:30]}...")
                                     else:
                                         stats.record_reply(source=meta.get("source", "rule"), action="skip")
+                                        events.event("send", chat=name, type="text", ok=False,
+                                                     reply=content[:120])
                                 else:
                                     logger.info("无合适回复，跳过")
                                     stats.record_reply(source=meta.get("source", "default"), action="skip")
+                                    events.event("skip", chat=name, reason="no_action",
+                                                 message=latest[:120])
 
                                 # 记录已处理
                                 state.mark_handled(name, latest, action or "none")
@@ -576,6 +582,221 @@ def api_test():
         return jsonify({"success": False, "message": "Test timed out (120s)"})
     except Exception as e:
         return jsonify({"success": False, "message": str(e)})
+
+
+# ===================== 消息列表 API =====================
+
+@app.route("/api/messages")
+def api_messages():
+    """获取所有会话消息列表"""
+    from message_store import MessageStore
+    store = MessageStore()
+    return jsonify({"success": True, "data": store.get_chat_list()})
+
+
+@app.route("/api/messages/<path:chat_name>")
+def api_message_detail(chat_name):
+    """获取某个会话的完整消息记录"""
+    from message_store import MessageStore
+    store = MessageStore()
+    return jsonify({"success": True, "data": store.get_chat_detail(chat_name)})
+
+
+# ===================== 提示词 & 配置可调 API =====================
+
+@app.route("/api/prompts", methods=["GET"])
+def api_prompts_get():
+    """获取所有可调节的提示词和配置"""
+    import config
+    from prompts import _SYSTEM_RULES, USER_PROMPT_TEMPLATE
+
+    return jsonify({
+        "success": True,
+        "data": {
+            "system_rules": _SYSTEM_RULES,
+            "user_prompt_template": USER_PROMPT_TEMPLATE,
+            "reply_templates": {
+                "SALARY_REPLY": config.SALARY_REPLY,
+                "INTERVIEW_TIME_REPLY": config.INTERVIEW_TIME_REPLY,
+                "JOB_CONTENT_REPLY": config.JOB_CONTENT_REPLY,
+                "GREETING_REPLY": config.GREETING_REPLY,
+                "DEFAULT_REPLY": config.DEFAULT_REPLY,
+                "RESUME_DUPLICATE_REPLY": config.RESUME_DUPLICATE_REPLY,
+                "RESUME_UNAVAILABLE_REPLY": config.RESUME_UNAVAILABLE_REPLY,
+            },
+            "reply_rules": config.REPLY_RULES,
+            "importance_keywords": config.IMPORTANCE_KEYWORDS,
+            "user_profile": config.USER_PROFILE,
+            "ai_config": {
+                "enable_ai": config.ENABLE_AI,
+                "ai_models": config.AI_MODELS,
+                "ai_base_url": config.AI_BASE_URL,
+                "ai_backup_models": config.AI_BACKUP_MODELS,
+                "ai_backup_base_url": config.AI_BACKUP_BASE_URL,
+                "ai_fallback_model": config.AI_FALLBACK_MODEL,
+                "ai_fallback_base_url": config.AI_FALLBACK_BASE_URL,
+                "ai_max_tokens": config.AI_MAX_TOKENS,
+                "ai_fail_action": config.AI_FAIL_ACTION,
+            },
+            "behavior_config": {
+                "check_interval": config.CHECK_INTERVAL,
+                "max_replies_per_hour": config.MAX_REPLIES_PER_HOUR,
+                "context_message_count": config.CONTEXT_MESSAGE_COUNT,
+                "pause_on_important": config.PAUSE_ON_IMPORTANT,
+                "resume_send_once": config.RESUME_SEND_ONCE,
+            },
+        }
+    })
+
+
+@app.route("/api/prompts", methods=["POST"])
+def api_prompts_save():
+    """保存修改的提示词和配置"""
+    data = request.get_json(silent=True) or {}
+    saved = []
+
+    # 保存话术模板到 config.py 的覆盖文件
+    overrides_path = PROJECT_ROOT / "config_overrides.json"
+    overrides = {}
+    if overrides_path.exists():
+        try:
+            with open(overrides_path, "r", encoding="utf-8") as f:
+                overrides = json.load(f)
+        except Exception:
+            pass
+
+    if "reply_templates" in data:
+        overrides["reply_templates"] = data["reply_templates"]
+        saved.append("reply_templates")
+    if "system_rules" in data:
+        overrides["system_rules"] = data["system_rules"]
+        saved.append("system_rules")
+    if "user_prompt_template" in data:
+        overrides["user_prompt_template"] = data["user_prompt_template"]
+        saved.append("user_prompt_template")
+    if "importance_keywords" in data:
+        overrides["importance_keywords"] = data["importance_keywords"]
+        saved.append("importance_keywords")
+    if "user_profile" in data:
+        overrides["user_profile"] = data["user_profile"]
+        # 同步保存到 user_profile.json
+        try:
+            with open(PROJECT_ROOT / "user_profile.json", "w", encoding="utf-8") as f:
+                json.dump(data["user_profile"], f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logging.getLogger("bot").error(f"保存 user_profile.json 失败: {e}")
+        saved.append("user_profile")
+
+    try:
+        with open(overrides_path, "w", encoding="utf-8") as f:
+            json.dump(overrides, f, ensure_ascii=False, indent=2)
+        logging.getLogger("bot").info(f"配置已保存: {saved}")
+        return jsonify({"success": True, "message": f"已保存: {', '.join(saved)}"})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+
+# ===================== 自我优化 API =====================
+
+@app.route("/api/optimize", methods=["POST"])
+def api_optimize():
+    """触发自我优化迭代"""
+    from self_optimizer import SelfOptimizer
+    opt = SelfOptimizer()
+    result = opt.analyze_and_optimize()
+    return jsonify({"success": True, "data": result})
+
+
+@app.route("/api/optimize/history")
+def api_optimize_history():
+    """获取优化历史"""
+    from self_optimizer import SelfOptimizer
+    opt = SelfOptimizer()
+    return jsonify({"success": True, "data": opt.get_optimization_history()})
+
+
+# ===================== 多账号管理 API =====================
+
+@app.route("/api/accounts")
+def api_accounts_list():
+    """获取所有账号列表"""
+    from account_manager import AccountManager
+    mgr = AccountManager()
+    return jsonify({"success": True, "data": mgr.list_accounts()})
+
+
+@app.route("/api/accounts", methods=["POST"])
+def api_accounts_create():
+    """创建新账号"""
+    from account_manager import AccountManager
+    data = request.get_json(silent=True) or {}
+    name = data.get("name", "")
+    if not name:
+        return jsonify({"success": False, "message": "请输入账号名称"})
+    mgr = AccountManager()
+    result = mgr.create_account(name, data.get("id"))
+    return jsonify(result)
+
+
+@app.route("/api/accounts/<account_id>", methods=["DELETE"])
+def api_accounts_delete(account_id):
+    """删除账号"""
+    from account_manager import AccountManager
+    mgr = AccountManager()
+    result = mgr.delete_account(account_id)
+    return jsonify(result)
+
+
+@app.route("/api/accounts/<account_id>/default", methods=["POST"])
+def api_accounts_set_default(account_id):
+    """设置默认账号（切换当前活跃账号）"""
+    from account_manager import AccountManager
+    mgr = AccountManager()
+    result = mgr.switch_account(account_id)
+    return jsonify(result)
+
+
+@app.route("/api/accounts/<account_id>/cookie", methods=["POST"])
+def api_accounts_upload_cookie(account_id):
+    """上传账号的 cookie 数据"""
+    from account_manager import AccountManager
+    mgr = AccountManager()
+    data = request.get_json(silent=True) or {}
+    cookies = data.get("cookies", [])
+    if not cookies:
+        return jsonify({"success": False, "message": "没有 cookie 数据"})
+    result = mgr.save_cookie(account_id, cookies)
+    return jsonify(result)
+
+
+@app.route("/api/accounts/<account_id>/cookie", methods=["GET"])
+def api_accounts_get_cookie_status(account_id):
+    """获取账号 cookie 状态"""
+    from account_manager import AccountManager
+    mgr = AccountManager()
+    result = mgr.get_cookie_status(account_id)
+    return jsonify({"success": True, "data": result})
+
+
+@app.route("/api/accounts/active")
+def api_accounts_active():
+    """获取当前活跃账号"""
+    from account_manager import AccountManager
+    mgr = AccountManager()
+    active = mgr.get_default_account()
+    accounts = mgr.list_accounts()
+    for a in accounts:
+        a["is_active"] = a["id"] == active
+    return jsonify({"success": True, "data": {"active_id": active, "accounts": accounts}})
+
+
+@app.route("/api/accounts/<account_id>/switch", methods=["POST"])
+def api_accounts_switch(account_id):
+    """切换到指定账号"""
+    from account_manager import AccountManager
+    mgr = AccountManager()
+    result = mgr.switch_account(account_id)
+    return jsonify(result)
 
 
 def main():

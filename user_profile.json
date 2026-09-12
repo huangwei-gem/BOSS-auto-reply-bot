@@ -1,0 +1,11 @@
+{
+  "name": "求职者",
+  "education": "本科学历",
+  "position": "数据分析",
+  "skills": ["Excel", "SQL", "Python 基础"],
+  "experience": "有数据分析相关实习经验",
+  "salary_expectation": "8-10K",
+  "available_interview_time": "这周周一到周五下午",
+  "contact": "",
+  "highlights": ["学习能力强", "沟通顺畅"]
+}

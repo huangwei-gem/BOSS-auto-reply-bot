@@ -103,6 +103,36 @@ def render_template(text: str, profile: dict) -> str:
 
 USER_PROFILE = load_user_profile()
 
+# ===================== 配置覆盖 =====================
+
+OVERRIDES_FILE = BASE_DIR / "config_overrides.json"
+
+def _load_overrides() -> dict:
+    try:
+        if OVERRIDES_FILE.exists():
+            with open(OVERRIDES_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+_OVERRIDES = _load_overrides()
+
+# 应用覆盖：话术模板
+if "reply_templates" in _OVERRIDES:
+    _rt = _OVERRIDES["reply_templates"]
+    if "SALARY_REPLY" in _rt: globals()["SALARY_REPLY"] = render_template(_rt["SALARY_REPLY"], USER_PROFILE)
+    if "INTERVIEW_TIME_REPLY" in _rt: globals()["INTERVIEW_TIME_REPLY"] = render_template(_rt["INTERVIEW_TIME_REPLY"], USER_PROFILE)
+    if "JOB_CONTENT_REPLY" in _rt: globals()["JOB_CONTENT_REPLY"] = render_template(_rt["JOB_CONTENT_REPLY"], USER_PROFILE)
+    if "GREETING_REPLY" in _rt: globals()["GREETING_REPLY"] = render_template(_rt["GREETING_REPLY"], USER_PROFILE)
+    if "DEFAULT_REPLY" in _rt: globals()["DEFAULT_REPLY"] = _rt["DEFAULT_REPLY"]
+    if "RESUME_DUPLICATE_REPLY" in _rt: globals()["RESUME_DUPLICATE_REPLY"] = _rt["RESUME_DUPLICATE_REPLY"]
+    if "RESUME_UNAVAILABLE_REPLY" in _rt: globals()["RESUME_UNAVAILABLE_REPLY"] = _rt["RESUME_UNAVAILABLE_REPLY"]
+
+# 应用覆盖：重要事件关键词
+if "importance_keywords" in _OVERRIDES:
+    IMPORTANCE_KEYWORDS_OVERRIDE = _OVERRIDES["importance_keywords"]
+
 # ===================== AI 配置 =====================
 
 # 是否启用 AI 回复（规则未匹配时）
@@ -123,7 +153,7 @@ AI_MODELS = [
 ]
 AI_BASE_URL = os.environ.get("AI_BASE_URL", "https://apihub.agnes-ai.com/v1")
 
-# 备用 API
+# 备用 API（日日新 Sensenova）
 AI_BACKUP_API_KEYS = [
     os.environ.get("AI_BACKUP_KEY_1", ""),
     os.environ.get("AI_BACKUP_KEY_2", ""),
@@ -133,6 +163,11 @@ AI_BACKUP_MODELS = [
     os.environ.get("AI_BACKUP_MODEL_2", "deepseek-v4-flash"),
 ]
 AI_BACKUP_BASE_URL = os.environ.get("AI_BACKUP_BASE_URL", "https://token.sensenova.cn/v1")
+
+# 兜底 API（DeepSeek — 最稳定，OpenAI 兼容格式）
+AI_FALLBACK_API_KEY = os.environ.get("AI_FALLBACK_KEY", "sk-841e797ee63940cba92bfd7ebcbf72be")
+AI_FALLBACK_MODEL = os.environ.get("AI_FALLBACK_MODEL", "deepseek-flash")
+AI_FALLBACK_BASE_URL = os.environ.get("AI_FALLBACK_BASE_URL", "https://api.deepseek.com")
 
 # AI 回复的最大 token 数
 AI_MAX_TOKENS = 200
@@ -229,3 +264,24 @@ NOTIFY_ENABLED = os.environ.get("NOTIFY_ENABLED", "true").lower() == "true"
 
 # Webhook 地址（可选：企业微信/飞书/钉钉机器人等，POST JSON）
 NOTIFY_WEBHOOK_URL = os.environ.get("NOTIFY_WEBHOOK_URL", "")
+
+# 简历发送失败时的降级话术
+RESUME_UNAVAILABLE_REPLY = "不好意思，简历文件暂时不在我这边，稍后我补发给您，可以先看看我主页的在线简历~"
+
+# ===================== 日志配置 =====================
+
+LOG_DIR = BASE_DIR / "logs"
+
+# 日志级别：DEBUG / INFO / WARNING（环境变量可覆盖）
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
+
+# 日志保留天数（文本日志 + 事件日志统一清理）
+LOG_RETENTION_DAYS = int(os.environ.get("LOG_RETENTION_DAYS", "14"))
+
+# 是否启用结构化事件日志（logs/events_YYYYMMDD.jsonl，方便程序分析）
+EVENT_LOG_ENABLED = os.environ.get("EVENT_LOG", "true").lower() == "true"
+
+# ===================== AI 容错配置 =====================
+
+# API 限流（429）时等待重试的秒数
+AI_RATE_LIMIT_WAIT = int(os.environ.get("AI_RATE_LIMIT_WAIT", "30"))

@@ -18,6 +18,8 @@ from pathlib import Path
 
 from config import CHAT_URL, COOKIE_FILE, TEST_MODE, TEST_PAGE
 from browser_launcher import launch_browser, BrowserInstance
+from message_store import MessageStore
+from account_manager import AccountManager
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +30,14 @@ BASE_DIR = Path(__file__).parent
 class BossChatHandler:
     """BOSS 聊天页面操作处理器"""
 
-    def __init__(self):
+    def __init__(self, account_id: str = None):
+        self._account_mgr = AccountManager()
+        self._account_id = account_id or self._account_mgr.get_default_account()
         self.browser: BrowserInstance = launch_browser()
         self.page = self.browser.page
         self._logged_in = False
         self._login_event = threading.Event()
+        self._msg_store = MessageStore()
 
     def login(self, timeout: int = 300) -> bool:
         """
@@ -126,18 +131,28 @@ class BossChatHandler:
         except Exception:
             return True
 
+    def _get_cookie_file(self) -> str:
+        """获取当前账号的 cookie 文件路径"""
+        if self._account_id:
+            cookie_file = self._account_mgr.get_data_paths(self._account_id).get("cookie_file")
+            if cookie_file and Path(cookie_file).exists():
+                return cookie_file
+        return COOKIE_FILE
+
     def _save_cookies(self):
         """保存 cookies 到文件（使用 CDP 获取完整 Cookie，包括 HttpOnly）"""
         try:
             cookies = self._get_all_cookies()
+            cookie_file = self._get_cookie_file()
             if cookies:
-                with open(COOKIE_FILE, "w", encoding="utf-8") as f:
+                with open(cookie_file, "w", encoding="utf-8") as f:
                     json.dump(cookies, f, ensure_ascii=False, indent=2)
-                logger.info(f"Cookie 已保存到 {COOKIE_FILE} ({len(cookies)} 个)")
+                logger.info(f"Cookie 已保存到 {cookie_file} ({len(cookies)} 个)")
+                if self._account_id:
+                    self._account_mgr.save_cookie(self._account_id, cookies)
             else:
-                # 兜底：用 DrissionPage 自带方法
-                self.browser.save_cookies(COOKIE_FILE)
-                logger.info(f"Cookie 已保存到 {COOKIE_FILE}（兜底方式）")
+                self.browser.save_cookies(cookie_file)
+                logger.info(f"Cookie 已保存到 {cookie_file}（兜底方式）")
         except Exception as e:
             logger.error(f"保存 Cookie 失败: {e}")
 
@@ -165,11 +180,12 @@ class BossChatHandler:
         return None
 
     def _load_cookies(self) -> bool:
-        """从文件加载 cookies"""
+        """从文件加载 cookies（优先使用账号目录的 cookie）"""
         try:
-            result = self.browser.load_cookies(COOKIE_FILE)
+            cookie_file = self._get_cookie_file()
+            result = self.browser.load_cookies(cookie_file)
             if result:
-                logger.info(f"已从 {COOKIE_FILE} 加载 Cookie")
+                logger.info(f"已从 {cookie_file} 加载 Cookie")
             return result
         except Exception as e:
             logger.error(f"加载 Cookie 失败: {e}")
@@ -258,32 +274,49 @@ class BossChatHandler:
         except Exception as e:
             logger.error(f"获取未读聊天列表失败: {e}")
 
-        logger.info(f"发现 {len(unread_chats)} 个未读会话")
+        logger.debug(f"发现 {len(unread_chats)} 个未读会话")
         return unread_chats
 
-    def enter_chat(self, chat_info: dict):
-        """点击进入某个聊天，等待聊天内容加载
+    def enter_chat(self, chat_info: dict, retries: int = 2) -> bool:
+        """点击进入某个聊天并校验切换成功，等待聊天内容加载。
 
         注意：使用 JS 点击（与 get_unread_chats 扫描同一 DOM 顺序）。
         实测 element.click() 坐标点击在 Retina 屏偏移、
         element 引用与 JS 索引错位，均会点错会话。
+
+        切换后校验页面顶栏姓名与目标会话一致，防止读到错误会话的消息。
+        返回 True=切换成功并确认；False=校验失败（调用方应跳过该会话）。
         """
         idx = chat_info.get('index', 0)
-        self.page.run_js(
-            f'document.querySelectorAll(".friend-content")[{idx}].click()',
-            as_expr=True
-        )
-        time.sleep(3)
+        expected_name = chat_info.get('name', '')
 
-        # 等待输入框加载
-        for _ in range(10):
-            ready = self.page.run_js(
-                'document.querySelector("#chat-input") ? "ready" : "not ready"',
+        for attempt in range(1, retries + 2):
+            self.page.run_js(
+                f'document.querySelectorAll(".friend-content")[{idx}].click()',
                 as_expr=True
             )
-            if ready == 'ready':
-                break
-            time.sleep(0.5)
+            time.sleep(3)
+
+            # 等待输入框加载
+            for _ in range(10):
+                ready = self.page.run_js(
+                    'document.querySelector("#chat-input") ? "ready" : "not ready"',
+                    as_expr=True
+                )
+                if ready == 'ready':
+                    break
+                time.sleep(0.5)
+
+            # 校验会话切换是否正确
+            actual_name = self.get_boss_name()
+            if not expected_name or actual_name == expected_name:
+                return True
+            logger.warning(
+                f"会话切换校验失败（第 {attempt}/{retries + 1} 次）: "
+                f"期望 [{expected_name}], 实际 [{actual_name}]，重试...")
+
+        logger.error(f"会话 [{expected_name}] 切换校验最终失败，应跳过该会话")
+        return False
 
     def read_latest_messages(self, count: int = 5) -> List[Dict]:
         """
@@ -323,6 +356,11 @@ class BossChatHandler:
 
             if result:
                 messages = json.loads(result)
+
+            if messages:
+                boss_name = self.get_boss_name()
+                job_name = self.get_job_name()
+                self._msg_store.save_messages(boss_name or "未知", messages, job_name)
         except Exception as e:
             logger.error(f"读取消息失败: {e}")
 
@@ -409,94 +447,126 @@ class BossChatHandler:
         logger.error(f"发送文字最终失败: {text[:30]}...")
         return False
 
-    def send_resume(self) -> bool:
+    def send_resume(self, retries: int = 2) -> bool:
         """
-        点击发送简历按钮，选择简历并发送。
+        点击发送简历按钮，确认发送。
 
-        实测 CSS（2026-09-09 浏览器验证）:
-        - 发简历按钮: .toolbar-btn（文本以"发简历"开头）
-        - 简历弹窗: .choose-resume-dialog
-        - 简历列表: .resume-list .list-item
-        - 简历名称: .resume-name
-        - 发送按钮: .btn-v2.btn-sure-v2.btn-confirm（有 disabled class 时不可点击）
+        实测 CSS（2026-09-12 真实页面验证，v5543 版本）:
+        - 发简历按钮: .toolbar-btn（文本含"发简历"）
+        - 确认弹层: .panel-resume.sentence-popover（"确定向 Boss 发送简历吗？"）
+        - 确定按钮: .panel-resume .btn-v2.btn-sure-v2
+        - 取消按钮: .panel-resume .btn-v2.btn-outline-v2
+        - 无简历时: .upload-resume-dialog 可见（"拖拽文件到这里…上传附件简历"）
+
+        注意：旧版页面的 .choose-resume-dialog / .resume-list .list-item 已不存在。
         """
-        try:
-            # 1. 点击"发简历"按钮
-            self.page.run_js('''(
-                function() {
-                    var btns = document.querySelectorAll(".toolbar-btn");
-                    for (var i = 0; i < btns.length; i++) {
-                        if (btns[i].textContent.trim().indexOf("发简历") >= 0) {
-                            btns[i].click();
-                            return "clicked";
+        for attempt in range(1, retries + 2):
+            try:
+                # 1. 点击"发简历"按钮
+                click_result = self.page.run_js('''(
+                    function() {
+                        var btns = document.querySelectorAll(".toolbar-btn");
+                        for (var i = 0; i < btns.length; i++) {
+                            if (btns[i].textContent.trim().indexOf("发简历") >= 0) {
+                                btns[i].click();
+                                return "clicked";
+                            }
                         }
+                        return "not found";
                     }
-                    return "not found";
-                }
-            )()''', as_expr=True)
-            time.sleep(2)
+                )()''', as_expr=True)
+                if click_result != "clicked":
+                    logger.warning(f"发简历按钮未找到（尝试 {attempt}/{retries + 1}）")
+                    time.sleep(1)
+                    continue
+                time.sleep(2)
 
-            # 2. 选择简历文件（点击第一个 .list-item）
-            result = self.page.run_js('''(
-                function() {
-                    var items = document.querySelectorAll(".resume-list .list-item");
-                    if (items.length > 0) {
-                        items[0].click();
-                        var name = items[0].querySelector(".resume-name");
-                        return "selected: " + (name ? name.textContent.trim() : "unknown");
+                # 2. 等待弹层出现：确认弹层 or 上传引导
+                state = "pending"
+                for _ in range(10):
+                    state = self.page.run_js('''(
+                        function() {
+                            var panel = document.querySelector(".panel-resume");
+                            if (panel) {
+                                var cs = window.getComputedStyle(panel);
+                                if (cs.display !== "none" && cs.visibility !== "hidden") return "confirm";
+                            }
+                            var upload = document.querySelector(".upload-resume-dialog");
+                            if (upload) {
+                                var cs2 = window.getComputedStyle(upload);
+                                if (cs2.display !== "none" && cs2.visibility !== "hidden") return "no_resume";
+                            }
+                            return "pending";
+                        }
+                    )()''', as_expr=True)
+                    if state in ("confirm", "no_resume"):
+                        break
+                    time.sleep(0.5)
+
+                if state == "no_resume":
+                    logger.error("没有附件简历，BOSS 弹出上传引导。请在网页端上传简历后重试")
+                    return False
+
+                if state != "confirm":
+                    logger.warning(f"确认弹层未出现（尝试 {attempt}/{retries + 1}）")
+                    continue
+
+                # 3. 点击确定按钮
+                send_result = self.page.run_js('''(
+                    function() {
+                        var btn = document.querySelector(".panel-resume .btn-v2.btn-sure-v2");
+                        if (!btn) return "button not found";
+                        if (btn.className.indexOf("disabled") >= 0) return "button disabled";
+                        btn.click();
+                        return "sent";
                     }
-                    return "no resume found";
-                }
-            )()''', as_expr=True)
-            logger.info(f"选择简历: {result}")
-            time.sleep(1)
+                )()''', as_expr=True)
+                logger.info(f"发送简历结果: {send_result}")
+                time.sleep(2)
 
-            if result and 'no resume' in str(result):
-                logger.error("没有可发送的简历")
-                return False
+                if send_result != "sent":
+                    logger.warning(f"发送按钮不可用（尝试 {attempt}/{retries + 1}）: {send_result}")
+                    # 关闭弹层后重试
+                    self.page.run_js('''(
+                        function() {
+                            var btn = document.querySelector(".panel-resume .btn-outline-v2");
+                            if (btn) btn.click();
+                        }
+                    )()''', as_expr=True)
+                    time.sleep(1)
+                    continue
 
-            # 3. 点击发送按钮
-            result = self.page.run_js('''(
-                function() {
-                    var btn = document.querySelector(".btn-v2.btn-sure-v2.btn-confirm");
-                    if (!btn) return "send button not found";
-                    if (btn.classList.contains("disabled")) return "button disabled";
-                    btn.disabled = false;
-                    btn.classList.remove("disabled");
-                    btn.click();
-                    return "sent";
-                }
-            )()''', as_expr=True)
-            logger.info(f"发送简历结果: {result}")
-            time.sleep(3)
+                # 4. 送达验证：确认弹层消失 + 消息列表出现简历消息
+                return self._verify_resume_sent()
 
-            if not (result and 'sent' in str(result)):
-                return False
+            except Exception as e:
+                logger.error(f"发送简历失败（尝试 {attempt}/{retries + 1}）: {e}")
+                time.sleep(1)
 
-            # 4. 送达验证：弹窗应已关闭，消息列表应出现简历消息
-            return self._verify_resume_sent()
-        except Exception as e:
-            logger.error(f"发送简历失败: {e}")
-            return False
+        logger.error("发送简历最终失败")
+        return False
 
-    def _verify_resume_sent(self, timeout: int = 5) -> bool:
-        """验证简历是否发送成功：弹窗关闭 + 消息列表出现简历项"""
+    def _verify_resume_sent(self, timeout: int = 6) -> bool:
+        """验证简历是否发送成功：确认弹层消失 + 消息列表出现简历项"""
         deadline = time.time() + timeout
         while time.time() < deadline:
             try:
                 result = self.page.run_js('''(
                     function() {
-                        var dialog = document.querySelector(".choose-resume-dialog");
-                        var dialogVisible = dialog && dialog.offsetParent !== null;
-                        if (dialogVisible) return "dialog visible";
+                        var panel = document.querySelector(".panel-resume");
+                        if (panel) {
+                            var cs = window.getComputedStyle(panel);
+                            if (cs.display !== "none" && cs.visibility !== "hidden") return "panel visible";
+                        }
                         var items = document.querySelectorAll(".message-item .text-content");
-                        var last = items.length ? items[items.length - 1].textContent : "";
+                        var count = items.length;
+                        var last = count ? items[count - 1].textContent : "";
                         if (last.indexOf("简历") >= 0) return "delivered";
-                        return "pending";
+                        return count > 0 ? "new_message" : "pending";
                     }
                 )()''', as_expr=True)
-                if result == "delivered":
-                    logger.info("简历送达验证通过")
+                if result in ("delivered", "new_message"):
+                    logger.info(f"简历送达验证通过（{result}）")
                     return True
             except Exception:
                 pass

@@ -1,1163 +1,1170 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BOSS Auto-Reply Bot</title>
-    <style>
-        /* ==================== Reset & Base ==================== */
-        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-
-        :root {
-            --accent: #2563eb;
-            --accent-soft: rgb(37 99 235 / .08);
-            --accent-border: rgb(37 99 235 / .2);
-            --surface: rgb(255 255 255 / .62);
-            --surface-elevated: rgb(255 255 255 / .78);
-            --border: rgb(0 0 0 / .06);
-            --border-strong: rgb(0 0 0 / .1);
-            --text-primary: #0f172a;
-            --text-secondary: #475569;
-            --text-muted: #94a3b8;
-            --success: #10b981;
-            --danger: #ef4444;
-            --warning: #f59e0b;
-            --radius: 16px;
-            --radius-sm: 10px;
-            --radius-xs: 6px;
-            --shadow-sm: 0 1px 3px rgb(0 0 0 / .04);
-            --shadow-md: 0 4px 16px rgb(0 0 0 / .06);
-            --shadow-lg: 0 12px 40px rgb(0 0 0 / .08);
-            --blur: 20px;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
-            background: #f1f5f9;
-            color: var(--text-primary);
-            min-height: 100dvh;
-            line-height: 1.5;
-            -webkit-font-smoothing: antialiased;
-        }
-
-        /* ==================== Background Decoration ==================== */
-        .bg-decoration {
-            position: fixed;
-            inset: 0;
-            z-index: 0;
-            overflow: hidden;
-            pointer-events: none;
-        }
-
-        .bg-blob {
-            position: absolute;
-            border-radius: 50%;
-            filter: blur(80px);
-            opacity: .35;
-        }
-
-        .bg-blob-1 {
-            width: 500px; height: 500px;
-            background: linear-gradient(135deg, #93c5fd, #c4b5fd);
-            top: -120px; left: -100px;
-        }
-
-        .bg-blob-2 {
-            width: 400px; height: 400px;
-            background: linear-gradient(135deg, #a7f3d0, #93c5fd);
-            bottom: -80px; right: -80px;
-        }
-
-        .bg-blob-3 {
-            width: 300px; height: 300px;
-            background: linear-gradient(135deg, #fde68a, #fca5a5);
-            top: 50%; right: 20%;
-            opacity: .18;
-        }
-
-        /* ==================== Glass Panel ==================== */
-        .glass {
-            position: relative;
-            background: var(--surface);
-            backdrop-filter: blur(var(--blur)) saturate(180%);
-            -webkit-backdrop-filter: blur(var(--blur)) saturate(180%);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            box-shadow: var(--shadow-md);
-        }
-
-        .glass::before {
-            content: "";
-            position: absolute;
-            inset: 0;
-            border-radius: inherit;
-            background: linear-gradient(135deg, rgb(255 255 255 / .35), transparent 50%);
-            pointer-events: none;
-            z-index: 0;
-        }
-
-        .glass > * { position: relative; z-index: 1; }
-
-        @media (prefers-reduced-transparency: reduce) {
-            .glass {
-                background: rgb(255 255 255 / .96);
-                backdrop-filter: none;
-                -webkit-backdrop-filter: none;
-            }
-        }
-
-        /* ==================== Layout ==================== */
-        .container {
-            position: relative;
-            z-index: 1;
-            max-width: 1280px;
-            margin: 0 auto;
-            padding: 28px 24px;
-        }
-
-        /* ==================== Header ==================== */
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 20px 28px;
-            margin-bottom: 24px;
-        }
-
-        .header-left {
-            display: flex;
-            align-items: center;
-            gap: 14px;
-        }
-
-        .logo-icon {
-            width: 44px; height: 44px;
-            border-radius: 12px;
-            background: linear-gradient(135deg, var(--accent), #7c3aed);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 22px;
-            color: #fff;
-            box-shadow: 0 4px 14px rgb(37 99 235 / .3);
-        }
-
-        .header-title {
-            font-size: 20px;
-            font-weight: 700;
-            letter-spacing: -0.02em;
-            color: var(--text-primary);
-        }
-
-        .header-subtitle {
-            font-size: 13px;
-            color: var(--text-muted);
-            margin-top: 1px;
-        }
-
-        .status-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 7px;
-            padding: 7px 16px;
-            border-radius: 999px;
-            font-size: 13px;
-            font-weight: 600;
-            border: 1px solid transparent;
-            transition: all .25s ease;
-        }
-
-        .status-dot {
-            width: 8px; height: 8px;
-            border-radius: 50%;
-            flex-shrink: 0;
-        }
-
-        .status-running {
-            background: rgb(16 185 129 / .1);
-            color: var(--success);
-            border-color: rgb(16 185 129 / .2);
-        }
-
-        .status-running .status-dot {
-            background: var(--success);
-            box-shadow: 0 0 0 3px rgb(16 185 129 / .2);
-            animation: pulse 2s infinite;
-        }
-
-        .status-stopped {
-            background: rgb(239 68 68 / .08);
-            color: var(--danger);
-            border-color: rgb(239 68 68 / .15);
-        }
-
-        .status-stopped .status-dot {
-            background: var(--danger);
-        }
-
-        @keyframes pulse {
-            0%, 100% { box-shadow: 0 0 0 3px rgb(16 185 129 / .2); }
-            50% { box-shadow: 0 0 0 6px rgb(16 185 129 / .08); }
-        }
-
-        /* ==================== Stats Grid ==================== */
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 16px;
-            margin-bottom: 24px;
-        }
-
-        .stat-card {
-            padding: 22px 24px;
-            transition: transform .2s ease, box-shadow .2s ease;
-        }
-
-        .stat-card:hover {
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-lg);
-        }
-
-        .stat-icon {
-            width: 38px; height: 38px;
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 18px;
-            margin-bottom: 14px;
-        }
-
-        .stat-icon-blue { background: rgb(37 99 235 / .1); }
-        .stat-icon-green { background: rgb(16 185 129 / .1); }
-        .stat-icon-amber { background: rgb(245 158 11 / .1); }
-        .stat-icon-purple { background: rgb(124 58 237 / .1); }
-
-        .stat-value {
-            font-size: 30px;
-            font-weight: 700;
-            letter-spacing: -0.03em;
-            color: var(--text-primary);
-            line-height: 1.1;
-        }
-
-        .stat-label {
-            font-size: 13px;
-            color: var(--text-muted);
-            margin-top: 4px;
-        }
-
-        /* ==================== Controls ==================== */
-        .controls {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 24px;
-            flex-wrap: wrap;
-        }
-
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 7px;
-            padding: 10px 20px;
-            border: 1px solid var(--border-strong);
-            border-radius: var(--radius-sm);
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all .2s ease;
-            background: var(--surface-elevated);
-            color: var(--text-primary);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-        }
-
-        .btn:hover:not(:disabled) {
-            transform: translateY(-1px);
-            box-shadow: var(--shadow-md);
-            border-color: var(--accent-border);
-        }
-
-        .btn:active:not(:disabled) {
-            transform: scale(.97);
-        }
-
-        .btn:disabled {
-            opacity: .45;
-            cursor: not-allowed;
-        }
-
-        .btn-primary {
-            background: var(--accent);
-            color: #fff;
-            border-color: transparent;
-            box-shadow: 0 2px 8px rgb(37 99 235 / .25);
-        }
-
-        .btn-primary:hover:not(:disabled) {
-            background: #1d4ed8;
-            box-shadow: 0 4px 16px rgb(37 99 235 / .35);
-        }
-
-        .btn-danger {
-            color: var(--danger);
-            border-color: rgb(239 68 68 / .2);
-            background: rgb(239 68 68 / .05);
-        }
-
-        .btn-danger:hover:not(:disabled) {
-            background: rgb(239 68 68 / .1);
-        }
-
-        .btn-success {
-            background: #16a34a;
-            color: #fff;
-            border-color: transparent;
-            box-shadow: 0 2px 8px rgb(22 163 74 / .3);
-            animation: pulse-success 2s infinite;
-        }
-
-        .btn-success:hover:not(:disabled) {
-            background: #15803d;
-        }
-
-        @keyframes pulse-success {
-            0%, 100% { box-shadow: 0 2px 8px rgb(22 163 74 / .3); }
-            50% { box-shadow: 0 2px 16px rgb(22 163 74 / .6); }
-        }
-            border-color: rgb(239 68 68 / .3);
-        }
-
-        /* ==================== Main Grid ==================== */
-        .main {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-        }
-
-        .panel {
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .panel-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 16px 22px;
-            border-bottom: 1px solid var(--border);
-            font-size: 14px;
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-
-        .panel-header-action {
-            font-size: 12px;
-            font-weight: 500;
-            color: var(--accent);
-            background: none;
-            border: none;
-            cursor: pointer;
-            padding: 4px 8px;
-            border-radius: var(--radius-xs);
-            transition: background .15s;
-        }
-
-        .panel-header-action:hover {
-            background: var(--accent-soft);
-        }
-
-        .panel-body {
-            padding: 16px 22px;
-            overflow-y: auto;
-            flex: 1;
-            max-height: 420px;
-        }
-
-        .panel-body::-webkit-scrollbar {
-            width: 5px;
-        }
-
-        .panel-body::-webkit-scrollbar-track {
-            background: transparent;
-        }
-
-        .panel-body::-webkit-scrollbar-thumb {
-            background: rgb(0 0 0 / .1);
-            border-radius: 999px;
-        }
-
-        /* ==================== Log Entries ==================== */
-        .log-entry {
-            display: flex;
-            align-items: flex-start;
-            gap: 10px;
-            padding: 8px 0;
-            border-bottom: 1px solid var(--border);
-            font-size: 13px;
-        }
-
-        .log-entry:last-child { border-bottom: none; }
-
-        .log-time {
-            color: var(--text-muted);
-            font-variant-numeric: tabular-nums;
-            flex-shrink: 0;
-            font-size: 12px;
-            padding-top: 1px;
-        }
-
-        .log-level {
-            flex-shrink: 0;
-            font-size: 11px;
-            font-weight: 700;
-            padding: 2px 7px;
-            border-radius: 4px;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-        }
-
-        .log-level-INFO {
-            background: rgb(37 99 235 / .1);
-            color: var(--accent);
-        }
-
-        .log-level-ERROR {
-            background: rgb(239 68 68 / .1);
-            color: var(--danger);
-        }
-
-        .log-level-WARNING {
-            background: rgb(245 158 11 / .1);
-            color: var(--warning);
-        }
-
-        .log-msg {
-            color: var(--text-secondary);
-            word-break: break-all;
-            line-height: 1.4;
-        }
-
-        /* ==================== Unread Items ==================== */
-        .unread-item {
-            padding: 14px 16px;
-            background: var(--accent-soft);
-            border: 1px solid var(--accent-border);
-            border-radius: var(--radius-sm);
-            margin-bottom: 10px;
-            transition: transform .15s, box-shadow .15s;
-        }
-
-        .unread-item:hover {
-            transform: translateX(2px);
-            box-shadow: var(--shadow-sm);
-        }
-
-        .unread-name {
-            font-weight: 600;
-            color: var(--text-primary);
-            margin-bottom: 4px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .unread-count {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            min-width: 20px; height: 20px;
-            background: var(--accent);
-            color: #fff;
-            border-radius: 999px;
-            font-size: 11px;
-            font-weight: 700;
-            padding: 0 6px;
-        }
-
-        .unread-preview {
-            font-size: 13px;
-            color: var(--text-secondary);
-            line-height: 1.4;
-        }
-
-        /* ==================== Config & Rules ==================== */
-        .config-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 12px 0;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .config-item:last-child { border-bottom: none; }
-
-        .config-key {
-            font-size: 13px;
-            color: var(--text-muted);
-        }
-
-        .config-val {
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--text-primary);
-            font-variant-numeric: tabular-nums;
-        }
-
-        .rule-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 10px 14px;
-            background: var(--accent-soft);
-            border: 1px solid var(--accent-border);
-            border-radius: var(--radius-xs);
-            margin-bottom: 6px;
-            font-size: 13px;
-        }
-
-        .rule-keyword {
-            font-weight: 600;
-            color: var(--accent);
-        }
-
-        .rule-action {
-            color: var(--text-secondary);
-            font-size: 12px;
-            max-width: 60%;
-            text-align: right;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        /* ==================== Empty State ==================== */
-        .empty {
-            text-align: center;
-            color: var(--text-muted);
-            padding: 40px 20px;
-            font-size: 14px;
-        }
-
-        /* ==================== Modal ==================== */
-        .modal-overlay {
-            display: none;
-            position: fixed;
-            inset: 0;
-            z-index: 100;
-            background: rgb(0 0 0 / .3);
-            backdrop-filter: blur(4px);
-            -webkit-backdrop-filter: blur(4px);
-            align-items: center;
-            justify-content: center;
-        }
-
-        .modal-overlay.active {
-            display: flex;
-        }
-
-        .modal {
-            width: 90%;
-            max-width: 860px;
-            height: 80vh;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            animation: modalIn .25s ease;
-        }
-
-        @keyframes modalIn {
-            from { opacity: 0; transform: scale(.96) translateY(8px); }
-            to { opacity: 1; transform: scale(1) translateY(0); }
-        }
-
-        .modal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 18px 24px;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .modal-title {
-            font-size: 16px;
-            font-weight: 600;
-        }
-
-        .modal-close {
-            width: 32px; height: 32px;
-            border: none;
-            background: var(--accent-soft);
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 16px;
-            color: var(--text-secondary);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: background .15s;
-        }
-
-        .modal-close:hover {
-            background: rgb(239 68 68 / .1);
-            color: var(--danger);
-        }
-
-        .modal-toolbar {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-            padding: 12px 24px;
-            border-bottom: 1px solid var(--border);
-            background: rgb(255 255 255 / .3);
-        }
-
-        .modal-select {
-            flex: 1;
-            padding: 8px 12px;
-            border: 1px solid var(--border-strong);
-            border-radius: var(--radius-xs);
-            background: var(--surface-elevated);
-            color: var(--text-primary);
-            font-size: 13px;
-            outline: none;
-            cursor: pointer;
-        }
-
-        .modal-select:focus {
-            border-color: var(--accent);
-        }
-
-        .modal-content {
-            flex: 1;
-            overflow-y: auto;
-            padding: 16px 24px;
-            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-            font-size: 12px;
-            line-height: 1.6;
-            color: var(--text-secondary);
-            white-space: pre-wrap;
-            word-break: break-all;
-            background: rgb(255 255 255 / .3);
-        }
-
-        /* ==================== Browser Selector ==================== */
-        .browser-selector {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 6px 14px;
-            background: var(--surface-elevated);
-            border: 1px solid var(--border-strong);
-            border-radius: var(--radius-sm);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-        }
-
-        .browser-label {
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--text-secondary);
-            white-space: nowrap;
-        }
-
-        .browser-select {
-            border: none;
-            background: transparent;
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--text-primary);
-            outline: none;
-            cursor: pointer;
-            padding-right: 4px;
-        }
-
-        /* ==================== Responsive ==================== */
-        @media (max-width: 900px) {
-            .stats { grid-template-columns: repeat(2, 1fr); }
-            .main { grid-template-columns: 1fr; }
-        }
-
-        @media (max-width: 600px) {
-            .container { padding: 16px 12px; }
-            .stats { grid-template-columns: 1fr 1fr; gap: 10px; }
-            .stat-card { padding: 16px; }
-            .stat-value { font-size: 24px; }
-            .header { padding: 16px 20px; }
-            .header-title { font-size: 17px; }
-            .controls { gap: 8px; }
-            .btn { padding: 8px 14px; font-size: 13px; }
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BOSS Auto-Reply Bot</title>
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root[data-theme="dark"] {
+  --bg-base: #050505;
+  --bg-gradient-1: rgba(99, 102, 241, 0.12);
+  --bg-gradient-2: rgba(16, 185, 129, 0.08);
+  --bg-gradient-3: rgba(236, 72, 153, 0.06);
+  --surface: rgba(255, 255, 255, 0.04);
+  --surface-elevated: rgba(255, 255, 255, 0.06);
+  --surface-solid: #0a0a0a;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.12);
+  --border-highlight: rgba(255, 255, 255, 0.15);
+  --text-primary: #f5f5f7;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+  --accent: #6366f1;
+  --accent-soft: rgba(99, 102, 241, 0.12);
+  --accent-glow: rgba(99, 102, 241, 0.25);
+  --success: #10b981;
+  --success-soft: rgba(16, 185, 129, 0.12);
+  --danger: #ef4444;
+  --danger-soft: rgba(239, 68, 68, 0.12);
+  --warning: #f59e0b;
+  --bubble-friend: rgba(255, 255, 255, 0.06);
+  --bubble-bot: #10b981;
+  --bubble-human: #6366f1;
+  --shadow-soft: 0 4px 24px rgba(0, 0, 0, 0.4);
+  --shadow-glow: 0 0 40px rgba(99, 102, 241, 0.15);
+  --blur: 24px;
+  --radius: 20px;
+  --radius-sm: 12px;
+  --radius-xs: 8px;
+}
+
+:root[data-theme="light"] {
+  --bg-base: #f5f5f7;
+  --bg-gradient-1: rgba(99, 102, 241, 0.08);
+  --bg-gradient-2: rgba(16, 185, 129, 0.06);
+  --bg-gradient-3: rgba(236, 72, 153, 0.04);
+  --surface: rgba(255, 255, 255, 0.6);
+  --surface-elevated: rgba(255, 255, 255, 0.8);
+  --surface-solid: #ffffff;
+  --border: rgba(0, 0, 0, 0.06);
+  --border-strong: rgba(0, 0, 0, 0.1);
+  --border-highlight: rgba(0, 0, 0, 0.12);
+  --text-primary: #1d1d1f;
+  --text-secondary: #6e6e73;
+  --text-muted: #aeaeb2;
+  --accent: #6366f1;
+  --accent-soft: rgba(99, 102, 241, 0.08);
+  --accent-glow: rgba(99, 102, 241, 0.15);
+  --success: #10b981;
+  --success-soft: rgba(16, 185, 129, 0.08);
+  --danger: #ef4444;
+  --danger-soft: rgba(239, 68, 68, 0.08);
+  --warning: #f59e0b;
+  --bubble-friend: rgba(0, 0, 0, 0.04);
+  --bubble-bot: #10b981;
+  --bubble-human: #6366f1;
+  --shadow-soft: 0 4px 24px rgba(0, 0, 0, 0.06);
+  --shadow-glow: 0 0 40px rgba(99, 102, 241, 0.08);
+  --blur: 24px;
+  --radius: 20px;
+  --radius-sm: 12px;
+  --radius-xs: 8px;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', system-ui, sans-serif;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  min-height: 100dvh;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* Background mesh gradients */
+.bg-mesh {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.bg-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+}
+.bg-orb-1 { width: 600px; height: 600px; background: var(--bg-gradient-1); top: -200px; left: -100px; }
+.bg-orb-2 { width: 500px; height: 500px; background: var(--bg-gradient-2); bottom: -150px; right: -100px; }
+.bg-orb-3 { width: 400px; height: 400px; background: var(--bg-gradient-3); top: 40%; right: 20%; }
+
+/* Glass panel — Double-Bezel architecture */
+.glass {
+  background: var(--surface);
+  backdrop-filter: blur(var(--blur)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(180%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+  position: relative;
+}
+.glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(135deg, rgba(255,255,255,0.06), transparent 50%);
+  pointer-events: none;
+}
+.glass-inner {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
+}
+
+.container {
+  position: relative;
+  z-index: 1;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+/* Header */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 20px;
+  margin-bottom: 14px;
+}
+.header-left { display: flex; align-items: center; gap: 12px; }
+.logo {
+  width: 40px; height: 40px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--accent), #8b5cf6);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; color: #fff;
+  box-shadow: 0 4px 12px var(--accent-glow);
+}
+.header-title { font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+.header-sub { font-size: 12px; color: var(--text-muted); }
+.header-right { display: flex; align-items: center; gap: 10px; }
+
+.status-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 14px; border-radius: 999px;
+  font-size: 12px; font-weight: 600;
+  border: 1px solid var(--border);
+}
+.status-dot { width: 7px; height: 7px; border-radius: 50%; }
+.status-running {
+  background: var(--success-soft);
+  color: var(--success);
+  border-color: rgba(16, 185, 129, 0.2);
+}
+.status-running .status-dot {
+  background: var(--success);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+  animation: pulse 2.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+.status-stopped {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: rgba(239, 68, 68, 0.15);
+}
+.status-stopped .status-dot { background: var(--danger); }
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15); }
+  50% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.05); }
+}
+
+.theme-toggle {
+  width: 36px; height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  backdrop-filter: blur(12px);
+  cursor: pointer; font-size: 16px;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.theme-toggle:hover {
+  border-color: var(--border-highlight);
+  transform: scale(1.05);
+}
+
+/* Stats — floating glass cards */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.stat-card {
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.stat-icon {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px;
+}
+.stat-icon-accent { background: var(--accent-soft); }
+.stat-icon-success { background: var(--success-soft); }
+.stat-icon-warning { background: rgba(245, 158, 11, 0.12); }
+.stat-icon-purple { background: rgba(139, 92, 246, 0.12); }
+.stat-value {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.stat-label { font-size: 12px; color: var(--text-muted); }
+
+/* Controls */
+.controls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--surface);
+  backdrop-filter: blur(12px);
+  color: var(--text-primary);
+  transition: all 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.btn:hover:not(:disabled) {
+  border-color: var(--border-highlight);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-soft);
+}
+.btn:active:not(:disabled) { transform: scale(0.98); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 2px 12px var(--accent-glow);
+}
+.btn-primary:hover:not(:disabled) {
+  box-shadow: 0 4px 20px var(--accent-glow);
+}
+.btn-danger {
+  color: var(--danger);
+  border-color: rgba(239, 68, 68, 0.2);
+  background: var(--danger-soft);
+}
+.btn-success {
+  background: var(--success);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 2px 12px rgba(16, 185, 129, 0.2);
+}
+
+/* Main 3-column layout */
+.main {
+  display: grid;
+  grid-template-columns: 240px 1fr 280px;
+  gap: 12px;
+  height: calc(100dvh - 240px);
+}
+
+/* Panel base */
+.panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.panel-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Chat list */
+.chat-list-body { flex: 1; overflow-y: auto; }
+.chat-item {
+  padding: 10px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.2s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.chat-item:hover { background: var(--accent-soft); }
+.chat-item.active {
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
+}
+.chat-item-name { font-weight: 600; font-size: 13px; }
+.chat-item-job { font-size: 12px; color: var(--text-muted); }
+.chat-item-last {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-item-time { font-size: 11px; color: var(--text-muted); }
+.chat-item-badge {
+  display: inline-block;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 999px;
+  font-size: 10px;
+  padding: 1px 6px;
+  margin-left: 4px;
+}
+
+/* Chat detail — message bubbles */
+.chat-messages { flex: 1; overflow-y: auto; padding: 16px; }
+.msg-row {
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+}
+.msg-row.msg-friend { align-items: flex-start; }
+.msg-row.msg-mine { align-items: flex-end; }
+.msg-bubble {
+  max-width: 70%;
+  padding: 8px 14px;
+  border-radius: 16px;
+  font-size: 14px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+.msg-friend .msg-bubble {
+  background: var(--bubble-friend);
+  color: var(--text-primary);
+  border-bottom-left-radius: 4px;
+}
+.msg-bot .msg-bubble {
+  background: var(--bubble-bot);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.msg-human .msg-bubble {
+  background: var(--bubble-human);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.msg-tag {
+  font-size: 10px;
+  margin-top: 3px;
+  padding: 0 4px;
+}
+.msg-bot .msg-tag { color: var(--success); }
+.msg-human .msg-tag { color: var(--accent); }
+.msg-time {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-bottom: 3px;
+}
+
+/* Config panel */
+.config-body { flex: 1; overflow-y: auto; padding: 12px 16px; }
+.config-section { margin-bottom: 16px; }
+.config-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 8px;
+}
+.config-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.config-key { color: var(--text-muted); }
+.config-val { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+textarea.config-edit {
+  width: 100%;
+  min-height: 60px;
+  padding: 10px;
+  font-size: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xs);
+  background: var(--surface-solid);
+  color: var(--text-primary);
+  resize: vertical;
+  font-family: inherit;
+  transition: border-color 0.2s cubic-bezier(0.32, 0.72, 0, 1);
+}
+textarea.config-edit:focus {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 1px 3px var(--accent-soft);
+}
+
+/* Log panel */
+.log-panel {
+  margin-top: 12px;
+  max-height: 140px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.log-body { flex: 1; overflow-y: auto; padding: 8px 14px; }
+.log-entry {
+  display: flex;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.log-time {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.log-level {
+  flex-shrink: 0;
+  font-weight: 700;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.log-level-INFO { background: var(--accent-soft); color: var(--accent); }
+.log-level-ERROR { background: var(--danger-soft); color: var(--danger); }
+.log-level-WARNING { background: rgba(245, 158, 11, 0.12); color: var(--warning); }
+.log-msg { color: var(--text-secondary); word-break: break-all; }
+
+/* Modal */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  align-items: center;
+  justify-content: center;
+}
+.modal-overlay.active { display: flex; }
+.modal {
+  width: 90%;
+  max-width: 800px;
+  height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: modalIn 0.4s cubic-bezier(0.32, 0.72, 0, 1);
+}
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.modal-header {
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.modal-title { font-weight: 700; font-size: 16px; }
+.modal-close {
+  width: 30px; height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: var(--surface-elevated);
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.modal-close:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.modal-body { flex: 1; overflow-y: auto; padding: 18px 22px; }
+.modal-toolbar {
+  display: flex;
+  gap: 8px;
+  padding: 10px 22px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-select {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xs);
+  background: var(--surface-solid);
+  color: var(--text-primary);
+  font-size: 12px;
+  outline: none;
+}
+
+/* Prompts editor */
+.prompts-section { margin-bottom: 20px; }
+.prompts-label { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+.prompts-hint { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; }
+
+/* Empty state */
+.empty {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 30px 16px;
+  font-size: 13px;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+}
+
+/* Responsive */
+@media (max-width: 1100px) {
+  .main { grid-template-columns: 200px 1fr; }
+  .config-panel { display: none; }
+}
+@media (max-width: 700px) {
+  .stats { grid-template-columns: repeat(2, 1fr); }
+  .main { grid-template-columns: 1fr; height: auto; }
+  .chat-list-panel { max-height: 200px; }
+  .chat-detail-panel { min-height: 300px; }
+}
+
+/* Reduced transparency fallback */
+@media (prefers-reduced-transparency: reduce) {
+  .glass {
+    background: var(--surface-solid);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+</style>
 </head>
 <body>
-    <!-- Background -->
-    <div class="bg-decoration">
-        <div class="bg-blob bg-blob-1"></div>
-        <div class="bg-blob bg-blob-2"></div>
-        <div class="bg-blob bg-blob-3"></div>
+<div class="bg-mesh">
+  <div class="bg-orb bg-orb-1"></div>
+  <div class="bg-orb bg-orb-2"></div>
+  <div class="bg-orb bg-orb-3"></div>
+</div>
+
+<div class="container">
+  <!-- Header -->
+  <div class="header glass">
+    <div class="header-left">
+      <div class="logo">B</div>
+      <div>
+        <div class="header-title">BOSS 自动回复机器人</div>
+        <div class="header-sub">自动化聊天回复系统</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <span id="statusBadge" class="status-badge status-stopped">
+        <span class="status-dot"></span>
+        <span id="statusText">已停止</span>
+      </span>
+      <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()"></button>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats">
+    <div class="stat-card glass">
+      <div class="stat-icon stat-icon-accent">🎯</div>
+      <div class="stat-value" id="statInterviews">0</div>
+      <div class="stat-label">已约面试</div>
+    </div>
+    <div class="stat-card glass">
+      <div class="stat-icon stat-icon-success">📬</div>
+      <div class="stat-value" id="statUnread">0</div>
+      <div class="stat-label">未读消息</div>
+    </div>
+    <div class="stat-card glass">
+      <div class="stat-icon stat-icon-warning">💬</div>
+      <div class="stat-value" id="statReplies">0</div>
+      <div class="stat-label">已回复</div>
+    </div>
+    <div class="stat-card glass">
+      <div class="stat-icon stat-icon-purple">📄</div>
+      <div class="stat-value" id="statResumes">0</div>
+      <div class="stat-label">已发简历</div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <button class="btn btn-primary" id="btnStart" onclick="startBot()">启动</button>
+    <button class="btn btn-danger" id="btnStop" onclick="stopBot()" disabled>停止</button>
+    <button class="btn btn-success" id="btnConfirmLogin" onclick="confirmLogin()" style="display:none">我已登录</button>
+    <button class="btn" onclick="refreshMessages()">刷新消息</button>
+    <button class="btn" onclick="showPromptsEditor()">提示词配置</button>
+    <button class="btn" onclick="showAccountManager()">账号管理</button>
+    <button class="btn" onclick="showLogFiles()">日志文件</button>
+    <span id="activeAccountBadge" style="font-size:12px;color:var(--text-muted);padding:4px 10px;border:1px solid var(--border);border-radius:999px;">未选择账号</span>
+  </div>
+
+  <!-- Main 3-column layout -->
+  <div class="main">
+    <!-- Left: Chat List -->
+    <div class="panel glass chat-list-panel">
+      <div class="panel-header">
+        <span>消息列表</span>
+        <span id="chatListCount" style="color:var(--text-muted)">0</span>
+      </div>
+      <div class="chat-list-body" id="chatListBody">
+        <div class="empty">暂无消息记录</div>
+      </div>
     </div>
 
-    <div class="container">
-        <!-- Header -->
-        <div class="header glass">
-            <div class="header-left">
-                <div class="logo-icon">B</div>
-                <div>
-                    <div class="header-title">BOSS 自动回复机器人</div>
-                    <div class="header-subtitle">自动化聊天回复系统</div>
-                </div>
-            </div>
-            <span id="statusBadge" class="status-badge status-stopped">
-                <span class="status-dot"></span>
-                <span id="statusText">已停止</span>
-            </span>
-        </div>
-
-        <!-- Stats -->
-        <div class="stats">
-            <div class="stat-card glass">
-                <div class="stat-icon stat-icon-blue">💬</div>
-                <div class="stat-value" id="statReplies">0</div>
-                <div class="stat-label">已回复消息</div>
-            </div>
-            <div class="stat-card glass">
-                <div class="stat-icon stat-icon-green">📄</div>
-                <div class="stat-value" id="statResumes">0</div>
-                <div class="stat-label">已发简历</div>
-            </div>
-            <div class="stat-card glass">
-                <div class="stat-icon stat-icon-amber">🕐</div>
-                <div class="stat-value" id="statLastCheck">--:--</div>
-                <div class="stat-label">上次检查</div>
-            </div>
-            <div class="stat-card glass">
-                <div class="stat-icon stat-icon-purple">⚡</div>
-                <div class="stat-value" id="statCurrent">--</div>
-                <div class="stat-label">当前处理</div>
-            </div>
-        </div>
-
-        <!-- Controls -->
-        <div class="controls">
-            <button class="btn btn-primary" id="btnStart" onclick="startBot()">▶ 启动</button>
-            <button class="btn btn-danger" id="btnStop" onclick="stopBot()" disabled>⏹ 停止</button>
-            <button class="btn btn-success" id="btnConfirmLogin" onclick="confirmLogin()" style="display:none">✓ 我已登录（保存 Cookie）</button>
-            <button class="btn" onclick="refreshUnread()">🔄 刷新未读</button>
-            <button class="btn" onclick="showLogFiles()">📁 日志文件</button>
-            <div style="flex:1"></div>
-            <div class="browser-selector" id="browserSelector">
-                <span class="browser-label">🌐 浏览器</span>
-                <select class="browser-select" id="browserSelect" onchange="selectBrowser()">
-                    <option value="">检测中...</option>
-                </select>
-            </div>
-        </div>
-
-        <!-- Main -->
-        <div class="main">
-            <!-- Left Column -->
-            <div>
-                <div class="panel glass" style="margin-bottom:20px;">
-                    <div class="panel-header">
-                        <span>📋 未读消息</span>
-                        <span id="unreadTotal" style="color:var(--text-muted);font-size:13px;">0</span>
-                    </div>
-                    <div class="panel-body" id="unreadList">
-                        <div class="empty">点击"刷新未读"查看消息</div>
-                    </div>
-                </div>
-
-                <div class="panel glass">
-                    <div class="panel-header">
-                        <span>📜 操作日志</span>
-                        <button class="panel-header-action" onclick="showLogFiles()">查看文件 →</button>
-                    </div>
-                    <div class="panel-body" id="logList">
-                        <div class="empty">启动机器人后查看日志</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Right Column -->
-            <div>
-                <div class="panel glass" style="margin-bottom:20px;">
-                    <div class="panel-header">
-                        <span>🍪 Cookie 登录状态</span>
-                        <button class="panel-header-action" id="btnClearCookie" onclick="clearCookie()">清除</button>
-                    </div>
-                    <div class="panel-body" id="cookiePanel">
-                        <div class="config-item">
-                            <span class="config-key">状态</span>
-                            <span class="config-val" id="cookieStatus">检测中...</span>
-                        </div>
-                        <div class="config-item">
-                            <span class="config-key">Cookie 数量</span>
-                            <span class="config-val" id="cookieCount">--</span>
-                        </div>
-                        <div class="config-item">
-                            <span class="config-key">更新时间</span>
-                            <span class="config-val" id="cookieTime">--</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="panel glass" style="margin-bottom:20px;">
-                    <div class="panel-header">⚙️ 配置信息</div>
-                    <div class="panel-body" id="configPanel">
-                        <div class="config-item">
-                            <span class="config-key">检查间隔</span>
-                            <span class="config-val" id="cfgInterval">--</span>
-                        </div>
-                        <div class="config-item">
-                            <span class="config-key">每小时上限</span>
-                            <span class="config-val" id="cfgMax">--</span>
-                        </div>
-                        <div class="config-item">
-                            <span class="config-key">规则数量</span>
-                            <span class="config-val" id="cfgRules">--</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="panel glass">
-                    <div class="panel-header">🎯 回复规则</div>
-                    <div class="panel-body" id="rulesPanel">
-                        <div class="empty">加载中...</div>
-                    </div>
-                </div>
-            </div>
-        </div>
+    <!-- Center: Chat Detail -->
+    <div class="panel glass chat-detail-panel">
+      <div class="panel-header" style="display:flex;justify-content:space-between;">
+        <span class="chat-header-name" id="chatDetailName">--</span>
+        <span style="font-size:12px;color:var(--accent);" id="chatDetailJob">--</span>
+      </div>
+      <div class="chat-messages" id="chatMessagesBody">
+        <div class="empty">选择左侧会话查看聊天记录</div>
+      </div>
     </div>
 
-    <!-- Log File Modal -->
-    <div class="modal-overlay" id="logModal" onclick="if(event.target===this) closeLogModal()">
-        <div class="modal glass">
-            <div class="modal-header">
-                <span class="modal-title">📁 日志文件</span>
-                <button class="modal-close" onclick="closeLogModal()">✕</button>
-            </div>
-            <div class="modal-toolbar">
-                <select class="modal-select" id="logFileSelect" onchange="loadLogFile()">
-                    <option value="">选择日志文件...</option>
-                </select>
-                <button class="btn" onclick="refreshLogFiles()" style="flex-shrink:0;">刷新</button>
-            </div>
-            <div class="modal-content" id="logFileContent">选择文件查看内容</div>
+    <!-- Right: Config Panel -->
+    <div class="panel glass config-panel">
+      <div class="panel-header">配置信息</div>
+      <div class="config-body" id="configBody">
+        <div class="config-section">
+          <div class="config-section-title">行为配置</div>
+          <div class="config-item">
+            <span class="config-key">检查间隔</span>
+            <span class="config-val" id="cfgInterval">--</span>
+          </div>
+          <div class="config-item">
+            <span class="config-key">每小时上限</span>
+            <span class="config-val" id="cfgMax">--</span>
+          </div>
+          <div class="config-item">
+            <span class="config-key">上下文条数</span>
+            <span class="config-val" id="cfgContext">--</span>
+          </div>
         </div>
+        <div class="config-section">
+          <div class="config-section-title">Cookie 状态</div>
+          <div class="config-item">
+            <span class="config-key">状态</span>
+            <span class="config-val" id="cookieStatus">--</span>
+          </div>
+          <div class="config-item">
+            <span class="config-key">数量</span>
+            <span class="config-val" id="cookieCount">--</span>
+          </div>
+        </div>
+        <div class="config-section">
+          <div class="config-section-title">AI 配置</div>
+          <div class="config-item">
+            <span class="config-key">主模型</span>
+            <span class="config-val" id="cfgAiModel">--</span>
+          </div>
+          <div class="config-item">
+            <span class="config-key">备用模型</span>
+            <span class="config-val" id="cfgBackupModel">--</span>
+          </div>
+          <div class="config-item">
+            <span class="config-key">兜底模型</span>
+            <span class="config-val" id="cfgFallbackModel">--</span>
+          </div>
+          <div class="config-item">
+            <span class="config-key">失败行为</span>
+            <span class="config-val" id="cfgFailAction">--</span>
+          </div>
+        </div>
+      </div>
     </div>
+  </div>
 
-    <script>
-        // ==================== Helpers ====================
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
+  <!-- Log Panel -->
+  <div class="panel glass log-panel">
+    <div class="panel-header">
+      <span>操作日志</span>
+      <button class="btn" style="padding:2px 10px;font-size:11px" onclick="showLogFiles()">查看文件</button>
+    </div>
+    <div class="log-body" id="logBody">
+      <div class="empty">启动机器人后查看日志</div>
+    </div>
+  </div>
+</div>
 
-        // ==================== Status ====================
-        async function updateStatus() {
-            try {
-                const res = await fetch('/api/status');
-                const json = await res.json();
-                const data = json.data;
+<!-- Log File Modal -->
+<div class="modal-overlay" id="logModal" onclick="if(event.target===this) closeLogModal()">
+  <div class="modal glass">
+    <div class="modal-header">
+      <span class="modal-title">日志文件</span>
+      <button class="modal-close" onclick="closeLogModal()">✕</button>
+    </div>
+    <div class="modal-toolbar">
+      <select class="modal-select" id="logFileSelect" onchange="loadLogFile()">
+        <option value="">选择日志文件...</option>
+      </select>
+      <button class="btn" onclick="refreshLogFiles()" style="flex-shrink:0">刷新</button>
+    </div>
+    <div class="modal-body" id="logFileContent" style="font-family:'SF Mono',monospace;font-size:12px;white-space:pre-wrap;word-break:break-all;">选择文件查看内容</div>
+  </div>
+</div>
 
-                const badge = document.getElementById('statusBadge');
-                const statusText = document.getElementById('statusText');
+<!-- Prompts Editor Modal -->
+<div class="modal-overlay" id="promptsModal" onclick="if(event.target===this) closePromptsModal()">
+  <div class="modal glass">
+    <div class="modal-header">
+      <span class="modal-title">提示词 & 配置编辑</span>
+      <button class="modal-close" onclick="closePromptsModal()">✕</button>
+    </div>
+    <div class="modal-body" id="promptsBody">
+      <div class="empty">加载中...</div>
+    </div>
+    <div style="padding:12px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;">
+      <button class="btn" onclick="closePromptsModal()">取消</button>
+      <button class="btn btn-primary" onclick="savePrompts()">保存</button>
+    </div>
+  </div>
+</div>
 
-                // 显示/隐藏"我已登录"按钮
-                const btnConfirmLogin = document.getElementById('btnConfirmLogin');
-                if (data.needs_login) {
-                    badge.className = 'status-badge status-running';
-                    statusText.textContent = '等待登录...';
-                    document.getElementById('btnStart').disabled = true;
-                    document.getElementById('btnStop').disabled = false;
-                    btnConfirmLogin.style.display = '';
-                } else if (data.running) {
-                    badge.className = 'status-badge status-running';
-                    statusText.textContent = '运行中';
-                    document.getElementById('btnStart').disabled = true;
-                    document.getElementById('btnStop').disabled = false;
-                    btnConfirmLogin.style.display = 'none';
-                } else {
-                    badge.className = 'status-badge status-stopped';
-                    statusText.textContent = '已停止';
-                    document.getElementById('btnStart').disabled = false;
-                    document.getElementById('btnStop').disabled = true;
-                    btnConfirmLogin.style.display = 'none';
-                }
+<!-- Account Manager Modal -->
+<div class="modal-overlay" id="accountModal" onclick="if(event.target===this) closeAccountModal()">
+  <div class="modal glass" style="max-width:700px;height:70vh;">
+    <div class="modal-header">
+      <span class="modal-title">账号管理</span>
+      <button class="modal-close" onclick="closeAccountModal()">✕</button>
+    </div>
+    <div class="modal-toolbar">
+      <input type="text" id="newAccountName" placeholder="输入账号名称..." class="modal-select" style="flex:1;">
+      <button class="btn btn-primary" onclick="createAccount()" style="flex-shrink:0">创建账号</button>
+    </div>
+    <div class="modal-body" id="accountListBody">
+      <div class="empty">加载中...</div>
+    </div>
+  </div>
+</div>
 
-                document.getElementById('statReplies').textContent = data.total_replies;
-                document.getElementById('statResumes').textContent = data.total_resumes;
-                document.getElementById('statLastCheck').textContent = data.last_check || '--:--';
-                document.getElementById('statCurrent').textContent = data.current_chat || '--';
-            } catch (e) {
-                console.error('Status update failed:', e);
-            }
-        }
+<!-- Cookie Upload Modal -->
+<div class="modal-overlay" id="cookieModal" onclick="if(event.target===this) closeCookieModal()">
+  <div class="modal glass" style="max-width:600px;height:60vh;">
+    <div class="modal-header">
+      <span class="modal-title">上传 Cookie — <span id="cookieAccountName"></span></span>
+      <button class="modal-close" onclick="closeCookieModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="prompts-section">
+        <div class="prompts-label">Cookie 数据 (JSON 格式)</div>
+        <div class="prompts-hint">从浏览器开发者工具复制 cookie，或粘贴 JSON 数组格式</div>
+        <textarea class="config-edit" id="cookieInput" style="min-height:200px;font-family:'SF Mono',monospace;font-size:11px;" placeholder='[{"name":"wt2","value":"xxx","domain":".zhipin.com","path":"/"}, ...]'></textarea>
+      </div>
+      <div class="prompts-section">
+        <div class="prompts-label">或输入单个 Cookie 值</div>
+        <div class="prompts-hint">直接粘贴 wt2 cookie 值（最关键的登录凭证）</div>
+        <textarea class="config-edit" id="wt2Input" style="min-height:40px;" placeholder="粘贴 wt2 cookie 值..."></textarea>
+      </div>
+    </div>
+    <div style="padding:12px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;">
+      <button class="btn" onclick="closeCookieModal()">取消</button>
+      <button class="btn btn-primary" onclick="uploadCookie()">上传 Cookie</button>
+    </div>
+  </div>
+</div>
 
-        // ==================== Logs ====================
-        async function updateLogs() {
-            try {
-                const res = await fetch('/api/logs?limit=50');
-                const json = await res.json();
-                const logs = json.data;
+<script>
+function escapeHtml(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML;}
 
-                if (logs.length === 0) return;
+function toggleTheme(){
+  const html=document.documentElement;
+  const cur=html.getAttribute('data-theme');
+  const next=cur==='light'?'dark':'light';
+  html.setAttribute('data-theme',next);
+  document.getElementById('themeToggle').textContent=next==='light'?'🌙':'☀️';
+  localStorage.setItem('theme',next);
+}
+(function initTheme(){
+  const saved=localStorage.getItem('theme')||'dark';
+  document.documentElement.setAttribute('data-theme',saved);
+  document.getElementById('themeToggle').textContent=saved==='light'?'🌙':'☀️';
+})();
 
-                const html = logs.map(log => `
-                    <div class="log-entry">
-                        <span class="log-time">${log.time}</span>
-                        <span class="log-level log-level-${log.level}">${log.level}</span>
-                        <span class="log-msg">${escapeHtml(log.message)}</span>
-                    </div>
-                `).join('');
+async function updateStatus(){
+  try{
+    const res=await fetch('/api/status');
+    const json=await res.json();
+    const data=json.data;
+    const badge=document.getElementById('statusBadge');
+    const statusText=document.getElementById('statusText');
+    const btnConfirmLogin=document.getElementById('btnConfirmLogin');
+    if(data.needs_login){
+      badge.className='status-badge status-running';
+      statusText.textContent='等待登录...';
+      document.getElementById('btnStart').disabled=true;
+      document.getElementById('btnStop').disabled=false;
+      btnConfirmLogin.style.display='';
+    }else if(data.running){
+      badge.className='status-badge status-running';
+      statusText.textContent='运行中';
+      document.getElementById('btnStart').disabled=true;
+      document.getElementById('btnStop').disabled=false;
+      btnConfirmLogin.style.display='none';
+    }else{
+      badge.className='status-badge status-stopped';
+      statusText.textContent='已停止';
+      document.getElementById('btnStart').disabled=false;
+      document.getElementById('btnStop').disabled=true;
+      btnConfirmLogin.style.display='none';
+    }
+    document.getElementById('statReplies').textContent=data.total_replies;
+    document.getElementById('statResumes').textContent=data.total_resumes;
+  }catch(e){console.error('Status:',e);}
+}
 
-                document.getElementById('logList').innerHTML = html;
-            } catch (e) {
-                console.error('Log update failed:', e);
-            }
-        }
+async function updateStats(){
+  try{
+    const res=await fetch('/api/stats');
+    const json=await res.json();
+    const data=json.data;
+    const total=data.total||{};
+    document.getElementById('statInterviews').textContent=(total.important_events||0);
+  }catch(e){console.error('Stats:',e);}
+}
 
-        // ==================== Unread ====================
-        async function refreshUnread() {
-            const container = document.getElementById('unreadList');
-            container.innerHTML = '<div class="empty">加载中...</div>';
+let currentChatName=null;
+async function refreshMessages(){
+  try{
+    const res=await fetch('/api/messages');
+    const json=await res.json();
+    const chats=json.data||[];
+    document.getElementById('chatListCount').textContent=chats.length;
+    let unreadTotal=0;
+    chats.forEach(c=>{if(c.last_message&&!c.last_message.is_mine)unreadTotal++;});
+    document.getElementById('statUnread').textContent=unreadTotal;
+    if(chats.length===0){
+      document.getElementById('chatListBody').innerHTML='<div class="empty">暂无消息记录</div>';
+      return;
+    }
+    const html=chats.map(c=>{
+      const last=c.last_message||{};
+      const lastText=last.text||'';
+      const isMine=last.is_mine;
+      const badge=(!isMine&&lastText)?'<span class="chat-item-badge">新</span>':'';
+      return `<div class="chat-item ${c.chat_name===currentChatName?'active':''}" onclick="selectChat('${escapeHtml(c.chat_name)}')"><div style="display:flex;justify-content:space-between;align-items:center;"><span class="chat-item-name">${escapeHtml(c.chat_name)}${badge}</span><span class="chat-item-time">${c.updated_at?c.updated_at.slice(11,16):''}</span></div><div class="chat-item-job">${escapeHtml(c.job_name||'')}</div><div class="chat-item-last">${isMine?'我: ':''}${escapeHtml(lastText.slice(0,40))}</div></div>`;
+    }).join('');
+    document.getElementById('chatListBody').innerHTML=html;
+  }catch(e){console.error('Messages:',e);}
+}
 
-            try {
-                const res = await fetch('/api/unread');
-                const json = await res.json();
+async function selectChat(name){
+  currentChatName=name;
+  try{
+    const res=await fetch('/api/messages/'+encodeURIComponent(name));
+    const json=await res.json();
+    const data=json.data||{};
+    const messages=data.messages||[];
+    document.getElementById('chatDetailName').textContent=data.chat_name||name;
+    document.getElementById('chatDetailJob').textContent=data.job_name||'';
+    if(messages.length===0){
+      document.getElementById('chatMessagesBody').innerHTML='<div class="empty">无消息记录</div>';
+      return;
+    }
+    const html=messages.map(m=>{
+      const isMine=m.is_mine;
+      const source=m.source||(isMine?'human':'friend');
+      let rowClass,bubbleClass,tag;
+      if(!isMine){rowClass='msg-friend';bubbleClass='';tag='';}
+      else if(source==='bot'){rowClass='msg-mine msg-bot';bubbleClass='';tag='<div class="msg-tag">机器人</div>';}
+      else{rowClass='msg-mine msg-human';bubbleClass='';tag='<div class="msg-tag">人工</div>';}
+      const time=m.time||'';
+      return `<div class="msg-row ${rowClass}"><div class="msg-time">${time}</div><div class="msg-bubble ${bubbleClass}">${escapeHtml(m.text||'')}</div>${tag}</div>`;
+    }).join('');
+    document.getElementById('chatMessagesBody').innerHTML=html;
+    document.getElementById('chatMessagesBody').scrollTop=999999;
+    refreshMessages();
+  }catch(e){console.error('Select chat:',e);}
+}
 
-                if (json.success) {
-                    const items = json.data;
-                    document.getElementById('unreadTotal').textContent = items.length;
+async function loadConfig(){
+  try{
+    const res=await fetch('/api/prompts');
+    const json=await res.json();
+    const data=json.data||{};
+    const bc=data.behavior_config||{};
+    document.getElementById('cfgInterval').textContent=bc.check_interval+'s';
+    document.getElementById('cfgMax').textContent=bc.max_replies_per_hour;
+    document.getElementById('cfgContext').textContent=bc.context_message_count;
+    const ai=data.ai_config||{};
+    document.getElementById('cfgAiModel').textContent=(ai.ai_models||[]).filter(m=>m).join(', ')||'--';
+    document.getElementById('cfgBackupModel').textContent=(ai.ai_backup_models||[]).filter(m=>m).join(', ')||'--';
+    document.getElementById('cfgFallbackModel').textContent=ai.ai_fallback_model||'--';
+    document.getElementById('cfgFailAction').textContent=ai.ai_fail_action||'--';
+    window._promptsData=data;
+  }catch(e){console.error('Config:',e);}
+}
 
-                    if (items.length > 0) {
-                        container.innerHTML = items.map(item => `
-                            <div class="unread-item">
-                                <div class="unread-name">
-                                    ${escapeHtml(item.name)}
-                                    <span class="unread-count">${item.count}</span>
-                                </div>
-                                <div class="unread-preview">${escapeHtml(item.preview)}</div>
-                            </div>
-                        `).join('');
-                    } else {
-                        container.innerHTML = '<div class="empty">暂无未读消息</div>';
-                    }
-                } else {
-                    container.innerHTML = `<div class="empty">错误: ${json.message}</div>`;
-                }
-            } catch (e) {
-                container.innerHTML = `<div class="empty">请求失败: ${e}</div>`            }
-        }
+async function loadCookieStatus(){
+  try{
+    const res=await fetch('/api/cookie/status');
+    const json=await res.json();
+    const data=json.data||{};
+    if(data.exists){
+      document.getElementById('cookieStatus').textContent='已保存';
+      document.getElementById('cookieCount').textContent=data.count+' 个';
+    }else{
+      document.getElementById('cookieStatus').textContent='未保存';
+      document.getElementById('cookieCount').textContent='--';
+    }
+  }catch(e){console.error('Cookie:',e);}
+}
 
-        // ==================== Config ====================
-        async function loadConfig() {
-            try {
-                const res = await fetch('/api/config');
-                const json = await res.json();
-                const data = json.data;
+async function updateLogs(){
+  try{
+    const res=await fetch('/api/logs?limit=40');
+    const json=await res.json();
+    const logs=json.data||[];
+    if(logs.length===0)return;
+    const html=logs.map(l=>`<div class="log-entry"><span class="log-time">${l.time}</span><span class="log-level log-level-${l.level}">${l.level}</span><span class="log-msg">${escapeHtml(l.message)}</span></div>`).join('');
+    document.getElementById('logBody').innerHTML=html;
+  }catch(e){console.error('Logs:',e);}
+}
 
-                document.getElementById('cfgInterval').textContent = data.check_interval + ' 秒';
-                document.getElementById('cfgMax').textContent = data.max_replies_per_hour;
-                document.getElementById('cfgRules').textContent = data.rules_count;
+async function startBot(){await fetch('/api/start',{method:'POST'});updateStatus();}
+async function stopBot(){await fetch('/api/stop',{method:'POST'});updateStatus();}
+async function confirmLogin(){
+  try{
+    const res=await fetch('/api/cookie/save',{method:'POST'});
+    const json=await res.json();
+    if(json.success)document.getElementById('btnConfirmLogin').style.display='none';
+    loadCookieStatus();
+  }catch(e){console.error('Login:',e);}
+}
 
-                const rulesHtml = Object.entries(data.rules).map(([k, v]) => `
-                    <div class="rule-item">
-                        <span class="rule-keyword">${escapeHtml(k)}</span>
-                        <span class="rule-action">${escapeHtml(v)}</span>
-                    </div>
-                `).join('');
-                document.getElementById('rulesPanel').innerHTML = rulesHtml || '<div class="empty">无规则</div>';
-            } catch (e) {
-                console.error('Config load failed:', e);
-            }
-        }
+function showLogFiles(){document.getElementById('logModal').classList.add('active');refreshLogFiles();}
+function closeLogModal(){document.getElementById('logModal').classList.remove('active');}
+async function refreshLogFiles(){
+  try{
+    const res=await fetch('/api/logfiles');
+    const json=await res.json();
+    const select=document.getElementById('logFileSelect');
+    select.innerHTML='<option value="">选择日志文件...</option>';
+    (json.data||[]).forEach(f=>{
+      const opt=document.createElement('option');
+      opt.value=f.name;
+      opt.textContent=`${f.name} (${(f.size/1024).toFixed(1)}KB) - ${f.modified}`;
+      select.appendChild(opt);
+    });
+  }catch(e){console.error('Log files:',e);}
+}
+async function loadLogFile(){
+  const fn=document.getElementById('logFileSelect').value;
+  if(!fn)return;
+  try{
+    const res=await fetch('/api/logfile/'+encodeURIComponent(fn));
+    const json=await res.json();
+    document.getElementById('logFileContent').textContent=json.data||json.message||'空文件';
+  }catch(e){document.getElementById('logFileContent').textContent='加载失败';}
+}
 
-        // ==================== Bot Controls ====================
-        async function startBot() {
-            const res = await fetch('/api/start', { method: 'POST' });
-            const json = await res.json();
-            addLog(json.success ? 'SUCCESS' : 'ERROR', json.message);
-            updateStatus();
-        }
+function showPromptsEditor(){document.getElementById('promptsModal').classList.add('active');renderPromptsEditor();}
+function closePromptsModal(){document.getElementById('promptsModal').classList.remove('active');}
 
-        async function stopBot() {
-            const res = await fetch('/api/stop', { method: 'POST' });
-            const json = await res.json();
-            addLog(json.success ? 'SUCCESS' : 'ERROR', json.message);
-            updateStatus();
-        }
+function renderPromptsEditor(){
+  const data=window._promptsData||{};
+  const body=document.getElementById('promptsBody');
+  const sections=[];
+  sections.push(`<div class="prompts-section"><div class="prompts-label">AI 系统提示词规则</div><div class="prompts-hint">控制 AI 回复的行为准则</div><textarea class="config-edit" id="edit_system_rules" style="min-height:140px">${escapeHtml(data.system_rules||'')}</textarea></div>`);
+ sections.push(`<div class="prompts-section"><div class="prompts-label">用户消息模板</div><div class="prompts-hint">可用 {boss_name} {job_name} {history} {message} 占位符</div><textarea class="config-edit" id="edit_user_prompt_template" style="min-height:100px">${escapeHtml(data.user_prompt_template||'')}</textarea></div>`);
+  const rt=data.reply_templates||{};
+  sections.push(`<div class="prompts-section"><div class="prompts-label">话术模板</div><div class="prompts-hint">可用 {salary} {interview_time} {position} 等占位符</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;"><div><div class="prompts-hint">薪资回复</div><textarea class="config-edit" id="edit_SALARY_REPLY">${escapeHtml(rt.SALARY_REPLY||'')}</textarea></div><div><div class="prompts-hint">面试时间回复</div><textarea class="config-edit" id="edit_INTERVIEW_TIME_REPLY">${escapeHtml(rt.INTERVIEW_TIME_REPLY||'')}</textarea></div><div><div class="prompts-hint">岗位理解回复</div><textarea class="config-edit" id="edit_JOB_CONTENT_REPLY">${escapeHtml(rt.JOB_CONTENT_REPLY||'')}</textarea></div><div><div class="prompts-hint">打招呼回复</div><textarea class="config-edit" id="edit_GREETING_REPLY">${escapeHtml(rt.GREETING_REPLY||'')}</textarea></div><div><div class="prompts-hint">默认兜底回复</div><textarea class="config-edit" id="edit_DEFAULT_REPLY">${escapeHtml(rt.DEFAULT_REPLY||'')}</textarea></div><div><div class="prompts-hint">简历重复降级回复</div><textarea class="config-edit" id="edit_RESUME_DUPLICATE_REPLY">${escapeHtml(rt.RESUME_DUPLICATE_REPLY||'')}</textarea></div><div><div class="prompts-hint">简历不可用降级回复</div><textarea class="config-edit" id="edit_RESUME_UNAVAILABLE_REPLY">${escapeHtml(rt.RESUME_UNAVAILABLE_REPLY||'')}</textarea></div></div></div>`);
+  sections.push(`<div class="prompts-section"><div class="prompts-label">重要事件关键词</div><div class="prompts-hint">命中时触发通知+可选转人工（逗号分隔）</div><textarea class="config-edit" id="edit_importance_keywords" style="min-height:60px">${escapeHtml((data.importance_keywords||[]).join(', '))}</textarea></div>`);
+  const up=data.user_profile||{};
+  sections.push(`<div class="prompts-section"><div class="prompts-label">个人画像</div><div class="prompts-hint">AI 回复时参考的个人背景</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;"><div><div class="prompts-hint">姓名</div><textarea class="config-edit" id="edit_profile_name" style="min-height:36px">${escapeHtml(up.name||'')}</textarea></div><div><div class="prompts-hint">学历</div><textarea class="config-edit" id="edit_profile_education" style="min-height:36px">${escapeHtml(up.education||'')}</textarea></div><div><div class="prompts-hint">求职方向</div><textarea class="config-edit" id="edit_profile_position" style="min-height:36px">${escapeHtml(up.position||'')}</textarea></div><div><div class="prompts-hint">技能（逗号分隔）</div><textarea class="config-edit" id="edit_profile_skills" style="min-height:36px">${escapeHtml((up.skills||[]).join(', '))}</textarea></div><div><div class="prompts-hint">经历</div><textarea class="config-edit" id="edit_profile_experience" style="min-height:36px">${escapeHtml(up.experience||'')}</textarea></div><div><div class="prompts-hint">期望薪资</div><textarea class="config-edit" id="edit_profile_salary" style="min-height:36px">${escapeHtml(up.salary_expectation||'')}</textarea></div><div><div class="prompts-hint">可面试时间</div><textarea class="config-edit" id="edit_profile_interview_time" style="min-height:36px">${escapeHtml(up.available_interview_time||'')}</textarea></div><div><div class="prompts-hint">联系方式</div><textarea class="config-edit" id="edit_profile_contact" style="min-height:36px">${escapeHtml(up.contact||'')}</textarea></div></div></div>`);
+  body.innerHTML=sections.join('');
+}
 
-        async function confirmLogin() {
-            addLog('INFO', '正在保存 Cookie...');
-            console.log('[DEBUG] confirmLogin clicked');
-            try {
-                const res = await fetch('/api/cookie/save', { method: 'POST' });
-                console.log('[DEBUG] response status:', res.status);
-                const json = await res.json();
-                console.log('[DEBUG] response json:', json);
-                if (json.success) {
-                    addLog('SUCCESS', '✅ ' + json.message);
-                    document.getElementById('btnConfirmLogin').style.display = 'none';
-                } else {
-                    addLog('ERROR', '❌ ' + json.message);
-                }
-                loadCookieStatus();
-            } catch (e) {
-                console.error('[DEBUG] fetch error:', e);
-                addLog('ERROR', '保存失败: ' + e);
-            }
-        }
+async function savePrompts(){
+  const data={};
+  const sr=document.getElementById('edit_system_rules');
+  if(sr)data.system_rules=sr.value;
+  const upt=document.getElementById('edit_user_prompt_template');
+  if(upt)data.user_prompt_template=upt.value;
+  const replyTemplates={};
+  ['SALARY_REPLY','INTERVIEW_TIME_REPLY','JOB_CONTENT_REPLY','GREETING_REPLY','DEFAULT_REPLY','RESUME_DUPLICATE_REPLY','RESUME_UNAVAILABLE_REPLY'].forEach(k=>{
+    const el=document.getElementById('edit_'+k);
+    if(el)replyTemplates[k]=el.value;
+  });
+  data.reply_templates=replyTemplates;
+  const ik=document.getElementById('edit_importance_keywords');
+  if(ik)data.importance_keywords=ik.value.split(',').map(s=>s.trim()).filter(s=>s);
+  const profile={};
+  const nameEl=document.getElementById('edit_profile_name');
+  if(nameEl){
+    profile.name=nameEl.value;
+    profile.education=document.getElementById('edit_profile_education').value;
+    profile.position=document.getElementById('edit_profile_position').value;
+    profile.skills=document.getElementById('edit_profile_skills').value.split(',').map(s=>s.trim()).filter(s=>s);
+    profile.experience=document.getElementById('edit_profile_experience').value;
+    profile.salary_expectation=document.getElementById('edit_profile_salary').value;
+    profile.available_interview_time=document.getElementById('edit_profile_interview_time').value;
+    profile.contact=document.getElementById('edit_profile_contact').value;
+    const highlights=window._promptsData?.user_profile?.highlights||[];
+    profile.highlights=highlights;
+  }
+  data.user_profile=profile;
+  try{
+    const res=await fetch('/api/prompts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    const json=await res.json();
+    if(json.success){closePromptsModal();loadConfig();}
+  }catch(e){console.error('Save prompts:',e);}
+}
 
-        // ==================== Log Files Modal ====================
-        function showLogFiles() {
-            document.getElementById('logModal').classList.add('active');
-            refreshLogFiles();
-        }
+let currentCookieAccountId=null;
 
-        function closeLogModal() {
-            document.getElementById('logModal').classList.remove('active');
-        }
+function showAccountManager(){
+  document.getElementById('accountModal').classList.add('active');
+  loadAccountList();
+}
+function closeAccountModal(){
+  document.getElementById('accountModal').classList.remove('active');
+}
 
-        async function refreshLogFiles() {
-            try {
-                const res = await fetch('/api/logfiles');
-                const json = await res.json();
-                const select = document.getElementById('logFileSelect');
-                select.innerHTML = '<option value="">选择日志文件...</option>';
-                json.data.forEach(f => {
-                    const opt = document.createElement('option');
-                    opt.value = f.name;
-                    const sizeKB = (f.size / 1024).toFixed(1);
-                    opt.textContent = `${f.name} (${sizeKB} KB) - ${f.modified}`;
-                    select.appendChild(opt);
-                });
-            } catch (e) {
-                console.error('Failed to load log files:', e);
-            }
-        }
+async function loadAccountList(){
+  try{
+    const res=await fetch('/api/accounts/active');
+    const json=await res.json();
+    const data=json.data||{};
+    const accounts=data.accounts||[];
+    const activeId=data.active_id;
+    const body=document.getElementById('accountListBody');
+    if(accounts.length===0){
+      body.innerHTML='<div class="empty">暂无账号，请创建一个</div>';
+      document.getElementById('activeAccountBadge').textContent='未选择账号';
+      return;
+    }
+    document.getElementById('activeAccountBadge').textContent=accounts.find(a=>a.id===activeId)?.name||'未选择账号';
+    const html=accounts.map(a=>{
+      const isActive=a.id===activeId;
+      const cookieBadge=a.logged_in?`<span style="color:var(--success);font-size:11px;">Cookie ✓ (${a.cookie_count||0})</span>`:'<span style="color:var(--danger);font-size:11px;">未上传 Cookie</span>';
+      return `<div style="padding:12px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <div style="font-weight:600;font-size:14px;">${escapeHtml(a.name)} ${isActive?'<span style="color:var(--accent);font-size:11px;">(当前)</span>':''}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${cookieBadge} | 创建: ${a.created_at||''}</div>
+        </div>
+        <div style="display:flex;gap:6px;">
+          ${isActive?'':`<button class="btn" style="padding:4px 10px;font-size:11px;" onclick="switchAccount('${a.id}')">切换</button>`}
+          <button class="btn" style="padding:4px 10px;font-size:11px;" onclick="showCookieUpload('${a.id}','${escapeHtml(a.name)}')">上传Cookie</button>
+          <button class="btn btn-danger" style="padding:4px 10px;font-size:11px;" onclick="deleteAccount('${a.id}')">删除</button>
+        </div>
+      </div>`;
+    }).join('');
+    body.innerHTML=html;
+  }catch(e){console.error('Account list:',e);}
+}
 
-        async function loadLogFile() {
-            const filename = document.getElementById('logFileSelect').value;
-            if (!filename) return;
-            try {
-                const res = await fetch('/api/logfile/' + encodeURIComponent(filename));
-                const json = await res.json();
-                document.getElementById('logFileContent').textContent = json.data || json.message || '空文件';
-            } catch (e) {
-                document.getElementById('logFileContent').textContent = '加载失败: ' + e;
-            }
-        }
+async function createAccount(){
+  const name=document.getElementById('newAccountName').value.trim();
+  if(!name)return;
+  try{
+    const res=await fetch('/api/accounts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});
+    const json=await res.json();
+    if(json.success){
+      document.getElementById('newAccountName').value='';
+      loadAccountList();
+    }
+  }catch(e){console.error('Create account:',e);}
+}
 
-        // ==================== Browser Selector ====================
-        const BROWSER_NAMES = {
-            chrome: "Google Chrome",
-            edge: "Microsoft Edge",
-            chromium: "Chromium"
-        };
+async function switchAccount(accountId){
+  try{
+    const res=await fetch(`/api/accounts/${accountId}/switch`,{method:'POST'});
+    const json=await res.json();
+    if(json.success)loadAccountList();
+  }catch(e){console.error('Switch account:',e);}
+}
 
-        async function loadBrowserSelector() {
-            try {
-                const res = await fetch('/api/browser/detect');
-                const json = await res.json();
-                if (!json.success) return;
+async function deleteAccount(accountId){
+  if(!confirm('确定删除该账号？所有数据将被清除。'))return;
+  try{
+    const res=await fetch(`/api/accounts/${accountId}`,{method:'DELETE'});
+    const json=await res.json();
+    if(json.success)loadAccountList();
+  }catch(e){console.error('Delete account:',e);}
+}
 
-                const { available, selected, default: defaultBrowser } = json.data;
-                const select = document.getElementById('browserSelect');
+function showCookieUpload(accountId,accountName){
+  currentCookieAccountId=accountId;
+  document.getElementById('cookieAccountName').textContent=accountName;
+  document.getElementById('cookieInput').value='';
+  document.getElementById('wt2Input').value='';
+  document.getElementById('cookieModal').classList.add('active');
+}
+function closeCookieModal(){
+  document.getElementById('cookieModal').classList.remove('active');
+}
 
-                select.innerHTML = '';
-                const browsers = Object.entries(available);
+async function uploadCookie(){
+  if(!currentCookieAccountId)return;
+  const jsonInput=document.getElementById('cookieInput').value.trim();
+  const wt2Input=document.getElementById('wt2Input').value.trim();
+  let cookies=[];
+  if(jsonInput){
+    try{cookies=JSON.parse(jsonInput);}catch(e){
+      alert('JSON 格式错误，请检查');return;
+    }
+  }else if(wt2Input){
+    cookies=[{name:'wt2',value:wt2Input,domain:'.zhipin.com',path:'/'}];
+  }else{
+    alert('请输入 Cookie 数据');return;
+  }
+  try{
+    const res=await fetch(`/api/accounts/${currentCookieAccountId}/cookie`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({cookies})
+    });
+    const json=await res.json();
+    if(json.success){
+      closeCookieModal();
+      loadAccountList();
+    }else{
+      alert(json.message||'上传失败');
+    }
+  }catch(e){console.error('Upload cookie:',e);alert('上传失败');}
+}
 
-                if (browsers.length === 0) {
-                    select.innerHTML = '<option value="">未检测到浏览器</option>';
-                    return;
-                }
-
-                for (const [key, path] of browsers) {
-                    const opt = document.createElement('option');
-                    opt.value = key;
-                    opt.textContent = BROWSER_NAMES[key] || key;
-                    if (key === (selected || defaultBrowser)) {
-                        opt.selected = true;
-                    }
-                    select.appendChild(opt);
-                }
-            } catch (e) {
-                console.error('Browser detection failed:', e);
-            }
-        }
-
-        async function selectBrowser() {
-            const name = document.getElementById('browserSelect').value;
-            if (!name) return;
-            try {
-                const res = await fetch('/api/browser/select', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ browser: name })
-                });
-                const json = await res.json();
-                // 轻提示，不用 alert
-                const selector = document.getElementById('browserSelector');
-                selector.style.borderColor = 'var(--success)';
-                setTimeout(() => selector.style.borderColor = '', 800);
-            } catch (e) {
-                console.error('Browser selection failed:', e);
-            }
-        }
-
-        // ==================== Cookie ====================
-        async function loadCookieStatus() {
-            try {
-                const res = await fetch('/api/cookie/status');
-                const json = await res.json();
-                const data = json.data;
-
-                const statusEl = document.getElementById('cookieStatus');
-                const countEl = document.getElementById('cookieCount');
-                const timeEl = document.getElementById('cookieTime');
-
-                if (data.exists) {
-                    statusEl.textContent = '✅ 已保存';
-                    statusEl.style.color = 'var(--success)';
-                    countEl.textContent = data.count + ' 个';
-                    timeEl.textContent = data.modified;
-                } else {
-                    statusEl.textContent = '⚠️ 未保存';
-                    statusEl.style.color = 'var(--text-muted)';
-                    countEl.textContent = '--';
-                    timeEl.textContent = '登录后自动保存';
-                }
-            } catch (e) {
-                console.error('Cookie status failed:', e);
-            }
-        }
-
-        async function clearCookie() {
-            if (!confirm('确定要清除已保存的 Cookie 吗？下次启动需要重新手动登录。')) return;
-            try {
-                const res = await fetch('/api/cookie/clear', { method: 'POST' });
-                const json = await res.json();
-                addLog(json.success ? 'SUCCESS' : 'ERROR', json.message);
-                loadCookieStatus();
-            } catch (e) {
-                addLog('ERROR', '清除失败: ' + e);
-            }
-        }
-
-        // ==================== Init ====================
-        setInterval(updateStatus, 2000);
-        setInterval(updateLogs, 1000);
-        setInterval(loadCookieStatus, 5000);
-
-        updateStatus();
-        updateLogs();
-        loadConfig();
-        loadBrowserSelector();
-        loadCookieStatus();
-    </script>
+setInterval(updateStatus,3000);
+setInterval(updateLogs,1500);
+setInterval(loadCookieStatus,10000);
+setInterval(refreshMessages,5000);
+setInterval(updateStats,5000);
+updateStatus();
+updateLogs();
+loadConfig();
+loadCookieStatus();
+refreshMessages();
+updateStats();
+</script>
 </body>
 </html>
