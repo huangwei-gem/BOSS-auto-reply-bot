@@ -25,6 +25,9 @@ BASE_DIR = Path(__file__).parent
 TEST_MODE = os.environ.get("BOSS_BOT_TEST_MODE", "") == "1"
 TEST_PAGE = os.environ.get("BOSS_BOT_TEST_PAGE", "")
 
+# 无头模式：不显示浏览器窗口，节省资源（服务器部署推荐开启）
+HEADLESS = os.environ.get("BOSS_BOT_HEADLESS", "") == "1"
+
 # ===================== 基础配置 =====================
 
 # 检查未读消息的间隔（秒）
@@ -165,7 +168,7 @@ AI_BACKUP_MODELS = [
 AI_BACKUP_BASE_URL = os.environ.get("AI_BACKUP_BASE_URL", "https://token.sensenova.cn/v1")
 
 # 兜底 API（DeepSeek — 最稳定，OpenAI 兼容格式）
-AI_FALLBACK_API_KEY = os.environ.get("AI_FALLBACK_KEY", "sk-841e797ee63940cba92bfd7ebcbf72be")
+AI_FALLBACK_API_KEY = os.environ.get("AI_FALLBACK_KEY", "")
 AI_FALLBACK_MODEL = os.environ.get("AI_FALLBACK_MODEL", "deepseek-flash")
 AI_FALLBACK_BASE_URL = os.environ.get("AI_FALLBACK_BASE_URL", "https://api.deepseek.com")
 
@@ -231,6 +234,14 @@ REPLY_RULES = {
     "岗位职责": JOB_CONTENT_REPLY,
     "做什么": JOB_CONTENT_REPLY,
 }
+
+# 应用覆盖：关键词规则（自进化新增；value 必须是 "send_resume" 或可发送的回复文本）
+if "reply_rules" in _OVERRIDES:
+    for _rk, _rv in _OVERRIDES["reply_rules"].items():
+        if not isinstance(_rk, str) or not _rk.strip():
+            continue
+        if _rv == "send_resume" or (isinstance(_rv, str) and 0 < len(_rv.strip()) <= 200):
+            REPLY_RULES[_rk.strip()] = _rv
 
 # ===================== 意图识别与重要事件 =====================
 

@@ -625,6 +625,9 @@ textarea.config-edit:focus {
     <button class="btn" onclick="showPromptsEditor()">提示词配置</button>
     <button class="btn" onclick="showAccountManager()">账号管理</button>
     <button class="btn" onclick="showLogFiles()">日志文件</button>
+    <label style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:4px;cursor:pointer;">
+      <input type="checkbox" id="headlessToggle" onchange="toggleHeadless()" style="cursor:pointer;"> 无头模式
+    </label>
     <span id="activeAccountBadge" style="font-size:12px;color:var(--text-muted);padding:4px 10px;border:1px solid var(--border);border-radius:999px;">未选择账号</span>
   </div>
 
@@ -633,7 +636,7 @@ textarea.config-edit:focus {
     <!-- Left: Chat List -->
     <div class="panel glass chat-list-panel">
       <div class="panel-header">
-        <span>消息列表</span>
+        <span>消息列表 <span id="chatListAccountTag" style="color:var(--accent);font-size:11px;"></span></span>
         <span id="chatListCount" style="color:var(--text-muted)">0</span>
       </div>
       <div class="chat-list-body" id="chatListBody">
@@ -827,7 +830,8 @@ async function updateStatus(){
       btnConfirmLogin.style.display='';
     }else if(data.running){
       badge.className='status-badge status-running';
-      statusText.textContent='运行中';
+      const modeLabel=data.headless?'运行中 (无头)':'运行中 (有头)';
+      statusText.textContent=modeLabel;
       document.getElementById('btnStart').disabled=true;
       document.getElementById('btnStop').disabled=false;
       btnConfirmLogin.style.display='none';
@@ -951,7 +955,16 @@ async function updateLogs(){
   }catch(e){console.error('Logs:',e);}
 }
 
-async function startBot(){await fetch('/api/start',{method:'POST'});updateStatus();}
+async function startBot(){
+  const headless=document.getElementById('headlessToggle')?.checked||false;
+  await fetch('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({headless})});
+  updateStatus();
+}
+
+function toggleHeadless(){
+  const checked=document.getElementById('headlessToggle').checked;
+  console.log('无头模式:', checked?'开启':'关闭');
+}
 async function stopBot(){await fetch('/api/stop',{method:'POST'});updateStatus();}
 async function confirmLogin(){
   try{
@@ -1065,6 +1078,11 @@ async function loadAccountList(){
       return;
     }
     document.getElementById('activeAccountBadge').textContent=accounts.find(a=>a.id===activeId)?.name||'未选择账号';
+    const accountTag=document.getElementById('chatListAccountTag');
+    if(accountTag){
+      const activeName=accounts.find(a=>a.id===activeId)?.name||'';
+      accountTag.textContent=activeName?`[${activeName}]`:'';
+    }
     const html=accounts.map(a=>{
       const isActive=a.id===activeId;
       const cookieBadge=a.logged_in?`<span style="color:var(--success);font-size:11px;">Cookie ✓ (${a.cookie_count||0})</span>`:'<span style="color:var(--danger);font-size:11px;">未上传 Cookie</span>';
@@ -1101,7 +1119,13 @@ async function switchAccount(accountId){
   try{
     const res=await fetch(`/api/accounts/${accountId}/switch`,{method:'POST'});
     const json=await res.json();
-    if(json.success)loadAccountList();
+    if(json.success){
+      loadAccountList();
+      refreshMessages();
+      loadCookieStatus();
+      updateStats();
+      updateStatus();
+    }
   }catch(e){console.error('Switch account:',e);}
 }
 
@@ -1165,6 +1189,7 @@ loadConfig();
 loadCookieStatus();
 refreshMessages();
 updateStats();
+loadAccountList();
 </script>
 </body>
 </html>

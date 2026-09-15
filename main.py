@@ -14,6 +14,7 @@ BOSS 自动回复机器人 - 主入口
 """
 
 import logging
+import os
 import signal
 import sys
 import time
@@ -195,6 +196,14 @@ def process_chat(handler: BossChatHandler, reply_engine: ReplyEngine, chat_info:
 
 def main():
     global running, handler
+
+    import argparse
+    parser = argparse.ArgumentParser(description="BOSS 自动回复机器人")
+    parser.add_argument("--headless", action="store_true", help="无头模式（不显示浏览器窗口，节省资源）")
+    args = parser.parse_args()
+
+    if args.headless:
+        os.environ["BOSS_BOT_HEADLESS"] = "1"
 
     # 注册信号处理
     signal.signal(signal.SIGINT, signal_handler)

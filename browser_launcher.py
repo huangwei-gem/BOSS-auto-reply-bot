@@ -1,7 +1,7 @@
 """跨平台浏览器启动器
 
-macOS: 手动启动 Chrome（临时配置文件）+ Chromium 连接
-Windows: 直接使用 ChromiumPage
+macOS: 手动启动 Chrome（临时配置文件）+ Chromium 地址连接
+Windows: 使用 Chromium + ChromiumOptions 直接启动
 """
 
 import os
@@ -289,19 +289,19 @@ class BrowserInstance:
             return False
 
     def _get_all_cookies(self) -> list:
-        """通过 CDP 获取浏览器所有 cookies"""
+        """获取浏览器所有 cookies（包括 HttpOnly）
+        使用 CDP Storage.getCookies 而非 tab.cookies，因为需要跨域名获取所有 cookie。"""
         browser = self._get_browser()
         if browser is not None:
             cks = browser._run_cdp('Storage.getCookies')['cookies']
             return list(cks)
-        # 兜底：用当前页面的 cookies
         return list(self._get_active().cookies(all_info=True))
 
     def _set_cookies(self, cookies: list):
-        """通过 CDP 设置 cookies"""
+        """设置 cookies
+        使用 CDP Storage.setCookies 而非 tab.set.cookies，因为需要设置跨域名 cookie。"""
         browser = self._get_browser()
         if browser is not None:
-            # 使用 Storage.setCookies（与 DrissionPage 内部一致）
             browser._run_cdp('Storage.setCookies', cookies=cookies)
         else:
             # 兜底：用 document.cookie
@@ -347,11 +347,12 @@ class BrowserInstance:
         return self._get_active()
 
 
-def launch_browser(port: int = 0) -> BrowserInstance:
+def launch_browser(port: int = 0, headless: bool = False) -> BrowserInstance:
     """启动浏览器（跨平台）
 
     Args:
         port: 调试端口（0 表示自动选择）
+        headless: 无头模式（不显示浏览器窗口，节省资源）
 
     Returns:
         BrowserInstance: 浏览器实例
@@ -361,12 +362,12 @@ def launch_browser(port: int = 0) -> BrowserInstance:
         raise FileNotFoundError("未找到 Chrome/Chromium，请先安装 Google Chrome")
 
     if _IS_MACOS:
-        return _launch_macos(chrome_path, port or _find_free_port())
+        return _launch_macos(chrome_path, port or _find_free_port(), headless)
     else:
-        return _launch_windows(chrome_path)
+        return _launch_windows(chrome_path, headless)
 
 
-def _launch_macos(chrome_path: str, port: int) -> BrowserInstance:
+def _launch_macos(chrome_path: str, port: int, headless: bool = False) -> BrowserInstance:
     """macOS: 用临时配置文件启动 Chrome + WebSocket 连接"""
 
     # 使用临时用户数据目录（不影响用户主 Chrome）
@@ -387,7 +388,11 @@ def _launch_macos(chrome_path: str, port: int) -> BrowserInstance:
         '--window-size=1280,800',
     ]
 
-    logger.info(f"macOS: 启动 Chrome (port={port}, profile={user_data_dir})")
+    if headless:
+        args.append('--headless=new')
+
+    mode_label = "无头模式" if headless else "有头模式"
+    logger.info(f"macOS: 启动 Chrome ({mode_label}, port={port}, profile={user_data_dir})")
 
     proc = subprocess.Popen(
         [chrome_path] + args,
@@ -404,30 +409,26 @@ def _launch_macos(chrome_path: str, port: int) -> BrowserInstance:
         proc.kill()
         raise RuntimeError("无法获取 Chrome WebSocket URL")
 
-    from DrissionPage._base.chromium import Chromium
-    from DrissionPage import ChromiumOptions
-
-    co = ChromiumOptions()
-    co.ws_address = ws_url
+    from DrissionPage import Chromium
 
     try:
-        chromium = Chromium(co)
+        chromium = Chromium(f'127.0.0.1:{port}')
     except Exception as e:
         proc.kill()
         raise RuntimeError(f"连接 Chrome 失败: {e}")
 
-    tab = chromium.new_tab()
+    tab = chromium.latest_tab
     logger.info(f"macOS: Chrome 连接成功 (PID={proc.pid})")
 
     return BrowserInstance(chromium=chromium, tab=tab, process=proc)
 
 
-def _launch_windows(chrome_path: str) -> BrowserInstance:
-    """Windows: 使用原生 ChromiumPage"""
+def _launch_windows(chrome_path: str, headless: bool = False) -> BrowserInstance:
+    """Windows: 使用 Chromium + ChromiumOptions"""
 
-    from DrissionPage import ChromiumPage, ChromiumOptions
+    from DrissionPage import Chromium, ChromiumOptions
 
-    co = ChromiumOptions(read_file=False)
+    co = ChromiumOptions()
     co.set_browser_path(chrome_path)
     co.set_argument('--no-sandbox')
     co.set_argument('--disable-gpu')
@@ -437,7 +438,12 @@ def _launch_windows(chrome_path: str) -> BrowserInstance:
     co.set_argument('--disable-features=DnsOverHttps')
     co.set_argument('--window-size=1280,800')
 
-    page = ChromiumPage(co)
-    logger.info("Windows: ChromiumPage 启动成功")
+    if headless:
+        co.set_argument('--headless=new')
 
-    return BrowserInstance(chrome_page=page)
+    browser = Chromium(co)
+    tab = browser.latest_tab
+    mode_label = "无头模式" if headless else "有头模式"
+    logger.info(f"Windows: Chromium 启动成功 ({mode_label})")
+
+    return BrowserInstance(chromium=browser, tab=tab)

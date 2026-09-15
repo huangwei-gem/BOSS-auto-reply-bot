@@ -101,7 +101,7 @@ def run_bot_loop():
 
     logger = logging.getLogger("bot")
     events = get_event_logger()
-    handler = BossChatHandler()
+    handler = BossChatHandler(headless=bot_state.get("headless", False))
     _bot_handler = handler
     engine = ReplyEngine()
     state = StateStore()
@@ -165,8 +165,7 @@ def run_bot_loop():
 
                 if unread_chats:
                     logger.info(f"发现 {len(unread_chats)} 个未读会话")
-                else:
-                    pass
+
 
                     for chat_info in unread_chats:
                         if not bot_state["running"]:
@@ -244,6 +243,9 @@ def run_bot_loop():
                                     meta["source"] = "intent"
 
                                 # 执行回复
+                                from message_store import MessageStore
+                                _msg_store = MessageStore()
+
                                 if action == "resume":
                                     engine.wait_human_delay()
                                     if handler.send_resume():
@@ -252,12 +254,28 @@ def run_bot_loop():
                                         bot_state["total_resumes"] += 1
                                         events.event("send", chat=name, type="resume", ok=True)
                                         logger.info("已发送简历")
+                                        _msg_store.append_message(name, {
+                                            "text": "[简历已发送]",
+                                            "time": datetime.now().strftime("%H:%M"),
+                                            "is_mine": True,
+                                            "source": "bot",
+                                            "action": "resume",
+                                            "reply_source": meta.get("source", "rule"),
+                                        }, job_name=job_name or "")
                                     else:
                                         # 简历发送失败：降级为文字告知 + 通知
                                         from config import RESUME_UNAVAILABLE_REPLY
                                         logger.warning("简历发送失败，降级为文字告知")
                                         engine.wait_human_delay()
                                         handler.send_text(RESUME_UNAVAILABLE_REPLY)
+                                        _msg_store.append_message(name, {
+                                            "text": RESUME_UNAVAILABLE_REPLY,
+                                            "time": datetime.now().strftime("%H:%M"),
+                                            "is_mine": True,
+                                            "source": "bot",
+                                            "action": "text",
+                                            "reply_source": "fallback",
+                                        }, job_name=job_name or "")
                                         notifier.send_notification(
                                             "简历发送失败",
                                             f"[{name}]（{job_name or '未知岗位'}）请求简历但发送失败，请检查 BOSS 账号的简历设置。",
@@ -273,6 +291,14 @@ def run_bot_loop():
                                         events.event("send", chat=name, type="text", ok=True,
                                                      reply=content[:120], source=meta.get("source", ""))
                                         logger.info(f"已回复: {content[:30]}...")
+                                        _msg_store.append_message(name, {
+                                            "text": content,
+                                            "time": datetime.now().strftime("%H:%M"),
+                                            "is_mine": True,
+                                            "source": "bot",
+                                            "action": "text",
+                                            "reply_source": meta.get("source", "rule"),
+                                        }, job_name=job_name or "")
                                     else:
                                         stats.record_reply(source=meta.get("source", "rule"), action="skip")
                                         events.event("send", chat=name, type="text", ok=False,
@@ -317,6 +343,7 @@ def api_status():
     """获取当前状态"""
     from state_store import StateStore
     data = dict(bot_state)
+    data["headless"] = bot_state.get("headless", False)
     try:
         state = StateStore()
         data["paused"] = state.is_paused()
@@ -381,12 +408,17 @@ def api_start():
     if bot_state["running"]:
         return jsonify({"success": False, "message": "机器人已在运行"})
 
+    # 从请求体读取 headless 参数
+    data = request.get_json(silent=True) or {}
+    bot_state["headless"] = data.get("headless", False)
+
     bot_state["running"] = True
     bot_thread = threading.Thread(target=run_bot_loop, daemon=True)
     bot_thread.start()
 
-    logging.getLogger("bot").info("机器人已启动")
-    return jsonify({"success": True, "message": "机器人已启动"})
+    mode_label = "无头模式" if bot_state["headless"] else "有头模式"
+    logging.getLogger("bot").info(f"机器人已启动 ({mode_label})")
+    return jsonify({"success": True, "message": f"机器人已启动 ({mode_label})"})
 
 
 @app.route("/api/stop", methods=["POST"])
@@ -404,14 +436,23 @@ def api_stop():
 
 @app.route("/api/unread")
 def api_unread():
-    """获取未读消息列表"""
+    """获取未读消息列表（复用全局浏览器实例，避免重复启动浏览器）"""
     from page_handler import BossChatHandler
 
+    global _bot_handler, bot_state
+
     try:
-        handler = BossChatHandler()
-        handler.go_to_chat()
-        unread = handler.get_unread_chats()
-        handler.close()
+        if _bot_handler is not None and bot_state["running"]:
+            handler, owned = _bot_handler, False
+        else:
+            handler, owned = BossChatHandler(), True
+
+        try:
+            handler.go_to_chat()
+            unread = handler.get_unread_chats()
+        finally:
+            if owned:
+                handler.close()
 
         return jsonify({
             "success": True,
@@ -707,12 +748,28 @@ def api_optimize():
     return jsonify({"success": True, "data": result})
 
 
+@app.route("/api/evolve", methods=["POST"])
+def api_evolve():
+    """触发自进化（AI 驱动的提示词优化）"""
+    from self_optimizer import SelfOptimizer
+    opt = SelfOptimizer()
+    result = opt.evolve()
+    return jsonify({"success": True, "data": result})
+
+
 @app.route("/api/optimize/history")
 def api_optimize_history():
     """获取优化历史"""
     from self_optimizer import SelfOptimizer
     opt = SelfOptimizer()
     return jsonify({"success": True, "data": opt.get_optimization_history()})
+
+
+@app.route("/api/evolve/status")
+def api_evolve_status():
+    """获取自动进化后台状态"""
+    from self_optimizer import get_auto_evolve_status
+    return jsonify({"success": True, "data": get_auto_evolve_status()})
 
 
 # ===================== 多账号管理 API =====================
@@ -801,6 +858,10 @@ def api_accounts_switch(account_id):
 
 def main():
     """启动 Flask 应用"""
+    # 启动定时自动进化后台线程（Hermes 式持续自进化）
+    from self_optimizer import start_auto_evolve
+    start_auto_evolve()
+
     app.run(host="127.0.0.1", port=5001, debug=False)
 
 

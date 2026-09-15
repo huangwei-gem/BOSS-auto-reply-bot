@@ -118,10 +118,29 @@ if defined CHROME_FOUND (
     echo.
 )
 
-REM ========== 启动机器人 ==========
+REM ========== 选择运行模式 ==========
 echo.
 echo ===================================================
-echo   启动机器人... 按 Ctrl+C 停止
+echo   请选择运行模式：
+echo     1) 有头模式（显示浏览器窗口，可手动操作）
+echo     2) 无头模式（不显示浏览器窗口，节省资源）
+echo ===================================================
+set /p MODE_CHOICE=请输入选项 [1/2]（默认 1）:
+
+set "HEADLESS_FLAG="
+set "MODE_LABEL=有头模式"
+
+if "%MODE_CHOICE%"=="2" (
+    set "HEADLESS_FLAG=--headless"
+    set "MODE_LABEL=无头模式"
+)
+
+echo   已选择: %MODE_LABEL%
+echo.
+
+REM ========== 启动机器人 ==========
+echo ===================================================
+echo   启动机器人 (%MODE_LABEL%)... 按 Ctrl+C 停止
 echo ===================================================
 echo.
 
@@ -133,7 +152,7 @@ if exist "%~dp0zhipin_cookies.json" (
 )
 echo.
 
-python main.py
+python main.py %HEADLESS_FLAG%
 
 echo.
 echo ===================================================

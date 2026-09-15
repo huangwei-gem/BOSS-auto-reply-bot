@@ -12,6 +12,10 @@ import logging
 import json
 import sys
 import os
+from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from account_manager import AccountManager
 
 sys.path.insert(0, os.path.dirname(__file__))
 from config import (
@@ -36,8 +40,56 @@ logger = logging.getLogger(__name__)
 class BSKEngine:
     """bsk CLI 命令封装"""
 
-    def __init__(self, session_id: str):
+    def __init__(self, session_id: str, account_id: str = None):
         self.session = session_id
+        self._account_mgr = AccountManager()
+        self._account_id = account_id or self._account_mgr.get_default_account()
+
+    def inject_cookies(self, cookies: list = None) -> bool:
+        """通过 bsk evaluate 注入 cookie 到当前浏览器会话"""
+        if not cookies:
+            if self._account_id:
+                cookies = self._account_mgr.load_cookie(self._account_id)
+            if not cookies:
+                logger.warning("没有可用的 cookie 数据")
+                return False
+
+        js_lines = []
+        for c in cookies:
+            name = c.get("name", "")
+            value = c.get("value", "")
+            domain = c.get("domain", ".zhipin.com")
+            path = c.get("path", "/")
+            secure = "true" if c.get("secure") else "false"
+            http_only = "true" if c.get("httpOnly") else "false"
+            js_lines.append(
+                f'document.cookie="{name}={value}; domain={domain}; path={path};'
+                f' secure={secure}; SameSite=None"'
+            )
+        js = ";".join(js_lines)
+        result = self.evaluate(js)
+        logger.info(f"注入 {len(cookies)} 个 cookie: {result[:50]}")
+        return True
+
+    def save_cookies(self) -> list:
+        """通过 bsk evaluate 获取当前页面的 cookie"""
+        result = self.evaluate("document.cookie")
+        cookies = []
+        if result:
+            for item in result.strip().split(";"):
+                item = item.strip()
+                if "=" in item:
+                    name, _, value = item.partition("=")
+                    cookies.append({
+                        "name": name.strip(),
+                        "value": value.strip(),
+                        "domain": ".zhipin.com",
+                        "path": "/",
+                    })
+        if cookies and self._account_id:
+            self._account_mgr.save_cookie(self._account_id, cookies)
+            logger.info(f"已保存 {len(cookies)} 个 cookie 到账号 {self._account_id}")
+        return cookies
 
     def run(self, cmd: str, timeout: int = 30) -> str:
         """执行 bsk 命令"""
@@ -94,8 +146,8 @@ class BSKEngine:
 class AutoApply:
     """一键投递主逻辑"""
 
-    def __init__(self, session_id: str):
-        self.bsk = BSKEngine(session_id)
+    def __init__(self, session_id: str, account_id: str = None):
+        self.bsk = BSKEngine(session_id, account_id)
         self.applied_count = 0
         self.failed_count = 0
 
@@ -112,6 +164,9 @@ class AutoApply:
         code = self.get_city_code(city)
         if not code:
             return []
+
+        # 先注入 cookie（如果有）
+        self.bsk.inject_cookies()
 
         url = f"{BASE_URL}/web/geek/jobs?query={keyword}&city={code}"
         self.bsk.navigate(url)
@@ -358,12 +413,13 @@ def main():
 
     parser = argparse.ArgumentParser(description="BOSS 一键投递机器人")
     parser.add_argument("--session", required=True, help="bsk 会话 ID")
+    parser.add_argument("--account", default=None, help="账号 ID（使用该账号的 cookie）")
     parser.add_argument("--city", default=CITY, help="目标城市")
     parser.add_argument("--keyword", default=JOB_KEYWORD, help="岗位关键词")
     parser.add_argument("--max", type=int, default=MAX_APPLIES, help="最大投递数")
     args = parser.parse_args()
 
-    auto = AutoApply(args.session)
+    auto = AutoApply(args.session, account_id=args.account)
     auto.run(city=args.city, keyword=args.keyword, max_applies=args.max)
 
 

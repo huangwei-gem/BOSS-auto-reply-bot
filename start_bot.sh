@@ -43,9 +43,32 @@ echo "  安装依赖..."
 pip install -r requirements.txt -q 2>/dev/null
 echo "  ✅ 依赖安装完成"
 
+# ── 选择运行模式 ──
+echo ""
+echo "  请选择运行模式："
+echo "    1) 有头模式（显示浏览器窗口，可手动操作）"
+echo "    2) 无头模式（不显示浏览器窗口，节省资源）"
+echo ""
+read -p "  请输入选项 [1/2]（默认 1）: " MODE_CHOICE
+
+case "$MODE_CHOICE" in
+    2)
+        HEADLESS_FLAG="--headless"
+        MODE_LABEL="无头模式"
+        ;;
+    *)
+        HEADLESS_FLAG=""
+        MODE_LABEL="有头模式"
+        ;;
+esac
+
+echo "  已选择: $MODE_LABEL"
+echo ""
+
 # ── 启动 ──
 echo "  ========================================"
 echo "  🚀 启动地址: http://127.0.0.1:5001"
+echo "  📋 运行模式: $MODE_LABEL"
 echo "  ========================================"
 
 python flask-version/app.py &
@@ -57,9 +80,11 @@ trap "kill $SERVER_PID 2>/dev/null; exit" INT TERM
 # 等待服务就绪
 sleep 2
 
-# 自动打开浏览器
-echo "  🌐 正在打开浏览器..."
-open "http://127.0.0.1:5001" 2>/dev/null || xdg-open "http://127.0.0.1:5001" 2>/dev/null || true
+# 自动打开浏览器（有头模式才打开管理界面）
+if [ "$MODE_LABEL" = "有头模式" ]; then
+    echo "  🌐 正在打开浏览器..."
+    open "http://127.0.0.1:5001" 2>/dev/null || xdg-open "http://127.0.0.1:5001" 2>/dev/null || true
+fi
 
 # 等待服务端退出
 wait $SERVER_PID
