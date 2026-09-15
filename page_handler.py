@@ -16,7 +16,7 @@ import threading
 from typing import List, Optional, Dict
 from pathlib import Path
 
-from config import CHAT_URL, COOKIE_FILE, TEST_MODE, TEST_PAGE
+from config import CHAT_URL, COOKIE_FILE, TEST_MODE, TEST_PAGE, HEADLESS
 from browser_launcher import launch_browser, BrowserInstance
 from message_store import MessageStore
 from account_manager import AccountManager
@@ -30,10 +30,11 @@ BASE_DIR = Path(__file__).parent
 class BossChatHandler:
     """BOSS 聊天页面操作处理器"""
 
-    def __init__(self, account_id: str = None):
+    def __init__(self, account_id: str = None, headless: bool = None):
         self._account_mgr = AccountManager()
         self._account_id = account_id or self._account_mgr.get_default_account()
-        self.browser: BrowserInstance = launch_browser()
+        self._headless = headless if headless is not None else HEADLESS
+        self.browser: BrowserInstance = launch_browser(headless=self._headless)
         self.page = self.browser.page
         self._logged_in = False
         self._login_event = threading.Event()
@@ -106,7 +107,7 @@ class BossChatHandler:
     def _dismiss_login_popup(self):
         """处理 BOSS 首页首次访问弹窗"""
         try:
-            close_btn = self.page.ele("text=关闭", timeout=3)
+            close_btn = self.page.ele("text:关闭", timeout=3)
             if close_btn:
                 close_btn.click()
                 logger.info("已关闭首页弹窗")
@@ -157,7 +158,8 @@ class BossChatHandler:
             logger.error(f"保存 Cookie 失败: {e}")
 
     def _get_all_cookies(self) -> list:
-        """通过 CDP 获取所有 Cookie（包括 HttpOnly）"""
+        """获取所有 Cookie（包括 HttpOnly）
+        使用 CDP Storage.getCookies 而非 tab.cookies，因为需要跨域名获取所有 cookie。"""
         try:
             browser = self._get_browser_obj()
             if browser is not None:

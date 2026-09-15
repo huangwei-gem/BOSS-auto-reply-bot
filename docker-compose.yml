@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  boss-bot:
+    build: .
+    ports:
+      - "5001:5001"
+    env_file:
+      - .env
+    volumes:
+      - ./accounts:/app/accounts
+      - ./messages:/app/messages
+      - ./logs:/app/logs
+      - ./cookie_backups:/app/cookie_backups
+      - ./zhipin_cookies.json:/app/zhipin_cookies.json
+      - ./config_overrides.json:/app/config_overrides.json
+      - ./user_profile.json:/app/user_profile.json
+    environment:
+      - ENABLE_AI=true
+      - AI_FAIL_ACTION=skip
+      - PAUSE_ON_IMPORTANT=true
+      - AUTO_EVOLVE_INTERVAL=3600
+      - CHROME_PATH=/usr/bin/chromium
+    shm_size: "1gb"
+    restart: unless-stopped

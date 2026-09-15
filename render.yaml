@@ -1,0 +1,18 @@
+# Render.com 免费部署配置
+# 注册: https://render.com
+# 免费 Tier: 750h/月, 512MB RAM, 自动休眠(15分钟无请求)
+
+services:
+  - type: web
+    name: boss-auto-reply-bot
+    runtime: python
+    buildCommand: pip install -r requirements.txt && pip install playwright && playwright install chromium
+    startCommand: python flask-version/app.py
+    envVars:
+      - key: ENABLE_AI
+        value: "true"
+      - key: AI_FAIL_ACTION
+        value: "skip"
+      - key: PAUSE_ON_IMPORTANT
+        value: "true"
+    plan: free

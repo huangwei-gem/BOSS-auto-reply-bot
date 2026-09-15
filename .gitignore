@@ -25,3 +25,12 @@ venv/
 .claude/
 skills-lock.json
 
+# 运行时数据
+accounts/
+bot_state.json
+bot_stats.json
+config_overrides.json
+cookie_backups/
+messages/
+messages_test/
+.arts/

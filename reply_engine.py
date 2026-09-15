@@ -44,6 +44,33 @@ INTENT_REPLIES = {
 }
 
 
+class ReplyCache:
+    """AI 回复缓存 — 相同消息内容不重复调用 API"""
+
+    def __init__(self, max_size: int = 200, ttl: int = 3600):
+        self._cache = {}
+        self._max_size = max_size
+        self._ttl = ttl
+
+    def _key(self, message: str, boss_name: str, job_name: str) -> str:
+        return f"{message[:100]}|{boss_name}|{job_name}"
+
+    def get(self, message: str, boss_name: str, job_name: str) -> Optional[str]:
+        key = self._key(message, boss_name, job_name)
+        entry = self._cache.get(key)
+        if entry and time.time() - entry[1] < self._ttl:
+            logger.debug(f"[缓存命中] key={key[:30]}")
+            return entry[0]
+        return None
+
+    def set(self, message: str, boss_name: str, job_name: str, reply: str):
+        if len(self._cache) >= self._max_size:
+            oldest = min(self._cache.items(), key=lambda x: x[1][1])
+            del self._cache[oldest[0]]
+        key = self._key(message, boss_name, job_name)
+        self._cache[key] = (reply, time.time())
+
+
 class ReplyEngine:
     """回复引擎：规则 + 意图 + AI 混合模式"""
 
@@ -51,6 +78,7 @@ class ReplyEngine:
         self.rule_engine = RuleEngine()
         self._reply_count = 0
         self._hour_start = time.time()
+        self._cache = ReplyCache()
 
     # ---------- 决策入口 ----------
 
@@ -180,9 +208,16 @@ class ReplyEngine:
         """调用 AI API 生成回复（OpenAI 兼容格式），失败自动切备用
 
         优化：Key 为空的主 API 直接跳过，不再先失败再切换。
+        优化：缓存命中时直接返回，不调用 API。
         """
         if message == "" and not history:
             return None
+
+        # 缓存检查
+        cached = self._cache.get(message, boss_name, job_name)
+        if cached:
+            logger.info(f"[缓存命中] 跳过 API 调用，直接返回缓存回复")
+            return cached
         # 过滤掉未配置 Key 的主 API
         main_keys = [(k, m) for k, m in zip(config.AI_API_KEYS, config.AI_MODELS) if k]
         if main_keys:
@@ -195,6 +230,7 @@ class ReplyEngine:
                     client, model, message, boss_name, job_name, history, "main")
                 if reply:
                     logger.info(f"[AI回复生成] {reply}")
+                    self._cache.set(message, boss_name, job_name, reply)
                     return reply
             except ImportError:
                 logger.warning("未安装 openai 库，无法使用 AI 回复。运行: pip install openai")
