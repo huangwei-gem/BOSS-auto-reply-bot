@@ -28,7 +28,7 @@ class SelfOptimizer:
     """自我优化迭代器：分析消息数据，自动优化提示词"""
 
     def __init__(self, base_dir=None):
-        from config import BASE_DIR
+        from boss_bot.config import BASE_DIR
         self.base_dir = Path(base_dir) if base_dir else Path(BASE_DIR)
         self.messages_dir = self.base_dir / "messages"
         self.overrides_path = self.base_dir / "config_overrides.json"
@@ -296,16 +296,14 @@ class SelfOptimizer:
             return []
 
     def _get_api_key(self):
-        """获取可用的 API Key（优先主 API，其次备用，最后兜底）"""
-        import config
-        for key, model, url in zip(config.AI_API_KEYS, config.AI_MODELS, [config.AI_BASE_URL]*3):
-            if key:
-                return (key, url, model)
-        for key, model, url in zip(config.AI_BACKUP_API_KEYS, config.AI_BACKUP_MODELS, [config.AI_BACKUP_BASE_URL]*2):
-            if key:
-                return (key, url, model)
-        if config.AI_FALLBACK_API_KEY:
-            return (config.AI_FALLBACK_API_KEY, config.AI_FALLBACK_BASE_URL, config.AI_FALLBACK_MODEL)
+        """获取可用的 API Key（从模型池中取第一个可用的）"""
+        import boss_bot.config as config
+        if config.AI_PROVIDERS:
+            provider = config.AI_PROVIDERS[0]
+            return (provider["key"], provider["url"], provider["model"])
+        # 兼容旧配置
+        if config.AI_API_KEYS and config.AI_API_KEYS[0]:
+            return (config.AI_API_KEYS[0], config.AI_BASE_URL, config.AI_MODELS[0])
         if _FALLBACK_KEY:
             return (_FALLBACK_KEY, _FALLBACK_URL, _FALLBACK_MODEL)
         return None

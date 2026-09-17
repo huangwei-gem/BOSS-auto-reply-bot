@@ -6,7 +6,7 @@ BOSS 自动回复机器人 - AI 提示词模板
 - 用户提示词包含多轮对话历史，保证回复连贯
 """
 
-from config import USER_PROFILE, _OVERRIDES
+from boss_bot.config import USER_PROFILE, _OVERRIDES
 
 # AI 系统提示词 - 行为准则（固定部分）
 _SYSTEM_RULES_DEFAULT = """你的回复要求：

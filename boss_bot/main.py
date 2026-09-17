@@ -20,21 +20,26 @@ import sys
 import time
 from datetime import datetime
 
-from config import (
+from boss_bot.config import (
     CHECK_INTERVAL, CONTEXT_MESSAGE_COUNT, PAUSE_ON_IMPORTANT, RESUME_SEND_ONCE,
 )
-from page_handler import BossChatHandler
-from reply_engine import ReplyEngine
-from state_store import StateStore
-from stats import Stats
-from notify import Notifier
-from event_logger import get_event_logger
-from message_store import MessageStore
+from boss_bot.page_handler import BossChatHandler
+from boss_bot.reply_engine import ReplyEngine
+from boss_bot.state_store import StateStore
+from boss_bot.stats import Stats
+from boss_bot.notify import Notifier
+from boss_bot.event_logger import get_event_logger
+from boss_bot.message_store import MessageStore
 
-# 配置日志（控制台简洁 + 文件详细 + JSONL 事件流）
-from logging_setup import setup_logging
+# 配置日志（分组件日志 + 错误聚合 + 诊断工具）
+from boss_bot.log_manager import setup_logging, get_logger
 setup_logging()
-logger = logging.getLogger(__name__)
+
+# 为各模块设置命名 logger
+logger = get_logger("main")
+browser_logger = get_logger("browser")
+ai_logger = get_logger("ai")
+reply_logger = get_logger("reply")
 
 # 全局变量，用于优雅退出
 running = True
@@ -128,7 +133,7 @@ def process_chat(handler: BossChatHandler, reply_engine: ReplyEngine, chat_info:
     if action == "resume" and RESUME_SEND_ONCE and state.resume_sent(name):
         # 已发过简历：降级为文字提醒，不重复发送
         logger.info("该会话已发送过简历，降级为文字提醒")
-        from config import RESUME_DUPLICATE_REPLY
+        from boss_bot.config import RESUME_DUPLICATE_REPLY
         action, content = "text", RESUME_DUPLICATE_REPLY
         meta["source"] = "intent"
 
@@ -147,7 +152,7 @@ def process_chat(handler: BossChatHandler, reply_engine: ReplyEngine, chat_info:
             }, job_name)
         else:
             logger.warning("简历发送失败，降级为文字告知")
-            from config import RESUME_UNAVAILABLE_REPLY
+            from boss_bot.config import RESUME_UNAVAILABLE_REPLY
             reply_engine.wait_human_delay()
             handler.send_text(RESUME_UNAVAILABLE_REPLY)
             msg_store.append_message(name, {

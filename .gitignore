@@ -17,8 +17,10 @@ venv/
 .idea/
 *.swp
 
-# 日志
+# 日志和运行时数据
+logs/
 *.log
+errors.json
 
 # Claude Code
 .agents/
@@ -34,3 +36,6 @@ cookie_backups/
 messages/
 messages_test/
 .arts/
+
+# 便携浏览器（大文件，不提交）
+cloakbrowser-windows-x64/

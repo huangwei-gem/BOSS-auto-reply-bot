@@ -32,7 +32,7 @@ TMP_DIR = Path(tempfile.mkdtemp(prefix="boss_bot_test_"))
 
 sys.path.insert(0, str(BASE_DIR))
 
-import config  # noqa: E402
+import boss_bot.config as config  # noqa: E402
 config.STATE_FILE = TMP_DIR / "state.json"
 config.STATS_FILE = TMP_DIR / "stats.json"
 config.NOTIFY_FILE = TMP_DIR / "notifications.json"
@@ -59,13 +59,13 @@ def check(name: str, cond: bool, detail: str = ""):
 
 
 def main():
-    from state_store import StateStore
-    from stats import Stats
-    from notify import Notifier
-    from page_handler import BossChatHandler
-    from reply_engine import ReplyEngine
-    import main as main_mod
-    import config as cfg
+    from boss_bot.state_store import StateStore
+    from boss_bot.stats import Stats
+    from boss_bot.notify import Notifier
+    from boss_bot.page_handler import BossChatHandler
+    from boss_bot.reply_engine import ReplyEngine
+    import boss_bot.main as main_mod
+    import boss_bot.config as cfg
 
     state = StateStore(path=TMP_DIR / "state.json")
     stats = Stats(path=TMP_DIR / "stats.json")
@@ -203,7 +203,7 @@ def main():
         check("T8b 引擎意图-邀约面试(标记重要)", meta.get("important") is False or True)  # 意图不影响 meta.important，由 notifier 判定
         check("T8c 引擎识别邀约意图", meta.get("intent") in ("invite_interview", "ask_interview"),
               f"intent={meta.get('intent')}")
-        from notify import Notifier as N
+        from boss_bot.notify import Notifier as N
         check("T8d 通知器判定邀约为重要事件", N(path=TMP_DIR / "n2.json").is_important(
             "明天来公司聊聊吧", "invite_interview"))
 

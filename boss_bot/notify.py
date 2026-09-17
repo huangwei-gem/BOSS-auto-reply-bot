@@ -23,7 +23,7 @@ class Notifier:
     MAX_RECORDS = 100
 
     def __init__(self, path=None):
-        from config import NOTIFY_FILE, NOTIFY_WEBHOOK_URL, NOTIFY_ENABLED
+        from boss_bot.config import NOTIFY_FILE, NOTIFY_WEBHOOK_URL, NOTIFY_ENABLED
         self.path = Path(path) if path else Path(NOTIFY_FILE)
         self.webhook_url = NOTIFY_WEBHOOK_URL
         self.enabled = NOTIFY_ENABLED
@@ -95,7 +95,7 @@ class Notifier:
 
     def is_important(self, message: str, intent: str = "") -> bool:
         """判断消息是否为重要事件（面试邀约/offer 等）"""
-        from config import IMPORTANCE_KEYWORDS
+        from boss_bot.config import IMPORTANCE_KEYWORDS
         if intent == "invite_interview":
             return True
         text = (message or "").lower()

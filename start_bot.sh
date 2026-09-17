@@ -71,7 +71,7 @@ echo "  🚀 启动地址: http://127.0.0.1:5001"
 echo "  📋 运行模式: $MODE_LABEL"
 echo "  ========================================"
 
-python flask-version/app.py &
+python -m flask_version.app &
 SERVER_PID=$!
 
 # Ctrl+C 时终止后台服务

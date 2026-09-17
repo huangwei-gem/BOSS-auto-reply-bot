@@ -24,7 +24,7 @@ class MessageStore:
     CACHE_TTL = 30  # 缓存有效期（秒）
 
     def __init__(self, base_dir=None):
-        from config import BASE_DIR, TEST_MODE
+        from boss_bot.config import BASE_DIR, TEST_MODE
         # 测试模式下隔离目录，避免 mock 测试数据污染前端真实消息列表
         dirname = "messages_test" if TEST_MODE else "messages"
         self.base_dir = Path(base_dir) if base_dir else Path(BASE_DIR) / dirname

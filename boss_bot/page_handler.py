@@ -16,10 +16,10 @@ import threading
 from typing import List, Optional, Dict
 from pathlib import Path
 
-from config import CHAT_URL, COOKIE_FILE, TEST_MODE, TEST_PAGE, HEADLESS
-from browser_launcher import launch_browser, BrowserInstance
-from message_store import MessageStore
-from account_manager import AccountManager
+from boss_bot.config import CHAT_URL, COOKIE_FILE, TEST_MODE, TEST_PAGE, HEADLESS
+from boss_bot.browser_launcher import launch_browser, BrowserInstance
+from boss_bot.message_store import MessageStore
+from boss_bot.account_manager import AccountManager
 
 logger = logging.getLogger(__name__)
 

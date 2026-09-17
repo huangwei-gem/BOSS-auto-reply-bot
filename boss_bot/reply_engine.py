@@ -17,17 +17,17 @@ import time
 import logging
 from typing import Optional, Tuple
 
-import config
-from config import (
+import boss_bot.config as config
+from boss_bot.config import (
     MIN_DELAY, MAX_DELAY,
     SALARY_REPLY, INTERVIEW_TIME_REPLY, JOB_CONTENT_REPLY,
     GREETING_REPLY,
     USER_PROFILE, render_template,
 )
-from rules import RuleEngine
-from intent import classify
-from prompts import SYSTEM_PROMPT, build_user_prompt
-from event_logger import get_event_logger
+from boss_bot.rules import RuleEngine
+from boss_bot.intent import classify
+from boss_bot.prompts import SYSTEM_PROMPT, build_user_prompt
+from boss_bot.event_logger import get_event_logger
 
 logger = logging.getLogger(__name__)
 
@@ -205,10 +205,13 @@ class ReplyEngine:
 
     def _ask_ai(self, message: str, boss_name: str, job_name: str,
                 history: list = None) -> Optional[str]:
-        """调用 AI API 生成回复（OpenAI 兼容格式），失败自动切备用
+        """调用 AI API 生成回复（OpenAI 兼容格式），多模型自动切换
 
-        优化：Key 为空的主 API 直接跳过，不再先失败再切换。
-        优化：缓存命中时直接返回，不调用 API。
+        策略：
+        1. 缓存命中时直接返回
+        2. 从模型池中随机打乱顺序，逐个尝试
+        3. 429 限流时等待后重试一次
+        4. 全部失败时返回 None
         """
         if message == "" and not history:
             return None
@@ -218,75 +221,44 @@ class ReplyEngine:
         if cached:
             logger.info(f"[缓存命中] 跳过 API 调用，直接返回缓存回复")
             return cached
-        # 过滤掉未配置 Key 的主 API
-        main_keys = [(k, m) for k, m in zip(config.AI_API_KEYS, config.AI_MODELS) if k]
-        if main_keys:
+
+        # 检查是否有配置模型
+        providers = config.AI_PROVIDERS
+        if not providers:
+            logger.info("未配置任何 AI 模型")
+            return None
+
+        # 随机打乱模型顺序，实现负载均衡
+        shuffled = list(providers)
+        random.shuffle(shuffled)
+
+        for i, provider in enumerate(shuffled):
+            api_key = provider["key"]
+            model = provider["model"]
+            base_url = provider["url"]
+            provider_name = f"{model}#{i+1}"
+
             try:
                 from openai import OpenAI
 
-                api_key, model = random.choice(main_keys)
-                client = OpenAI(api_key=api_key, base_url=config.AI_BASE_URL)
+                client = OpenAI(api_key=api_key, base_url=base_url)
                 reply = self._call_with_rate_limit_retry(
-                    client, model, message, boss_name, job_name, history, "main")
+                    client, model, message, boss_name, job_name, history, provider_name)
                 if reply:
-                    logger.info(f"[AI回复生成] {reply}")
+                    logger.info(f"[AI回复生成] {provider_name}: {reply[:50]}...")
                     self._cache.set(message, boss_name, job_name, reply)
                     return reply
             except ImportError:
                 logger.warning("未安装 openai 库，无法使用 AI 回复。运行: pip install openai")
                 return None
             except Exception as e:
-                logger.error(f"主 API 调用失败: {e}，尝试备用 API...")
-                get_event_logger().event("ai_call", api="main", ok=False,
+                logger.warning(f"[{provider_name}] 调用失败: {str(e)[:100]}，尝试下一个模型...")
+                get_event_logger().event("ai_call", api=provider_name, ok=False,
                                          error=str(e)[:200])
-        else:
-            logger.info("主 API 未配置 Key，直接使用备用 API")
+                continue
 
-        return self._ask_ai_backup(message, boss_name, job_name, history)
-
-    def _ask_ai_backup(self, message: str, boss_name: str, job_name: str,
-                       history: list = None) -> Optional[str]:
-        """备用 AI API（日日新 Sensenova）"""
-        backup_keys = [(k, m) for k, m in zip(config.AI_BACKUP_API_KEYS, config.AI_BACKUP_MODELS) if k]
-        if backup_keys:
-            try:
-                from openai import OpenAI
-
-                api_key, model = random.choice(backup_keys)
-                client = OpenAI(api_key=api_key, base_url=config.AI_BACKUP_BASE_URL)
-                reply = self._call_with_rate_limit_retry(
-                    client, model, message, boss_name, job_name, history, "backup")
-                if reply:
-                    logger.info(f"[备用AI回复生成] {reply}")
-                    return reply
-            except Exception as e:
-                logger.error(f"备用 API 失败: {e}")
-                get_event_logger().event("ai_call", api="backup", ok=False,
-                                         error=str(e)[:200])
-
-        return self._ask_ai_fallback(message, boss_name, job_name, history)
-
-    def _ask_ai_fallback(self, message: str, boss_name: str, job_name: str,
-                         history: list = None) -> Optional[str]:
-        """兜底 AI API（DeepSeek — 最稳定）"""
-        if not config.AI_FALLBACK_API_KEY:
-            logger.warning("兜底 API (DeepSeek) 也未配置 Key")
-            return None
-        try:
-            from openai import OpenAI
-
-            client = OpenAI(api_key=config.AI_FALLBACK_API_KEY,
-                            base_url=config.AI_FALLBACK_BASE_URL)
-            reply = self._call_with_rate_limit_retry(
-                client, config.AI_FALLBACK_MODEL, message, boss_name, job_name,
-                history, "fallback")
-            if reply:
-                logger.info(f"[兜底AI回复生成] {reply}")
-                return reply
-        except Exception as e:
-            logger.error(f"兜底 API (DeepSeek) 也失败: {e}")
-            get_event_logger().event("ai_call", api="fallback", ok=False,
-                                     error=str(e)[:200])
+        # 全部模型都失败
+        logger.error("所有 AI 模型均调用失败")
         return None
 
     @staticmethod

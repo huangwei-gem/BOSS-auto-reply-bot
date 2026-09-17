@@ -11,7 +11,7 @@ BOSS 自动回复机器人 - 关键词规则模块
 
 import re
 from typing import Optional, Tuple
-from config import REPLY_RULES
+from boss_bot.config import REPLY_RULES
 
 # 关键词前缀窗口内的疑问/否定标记（命中则跳过该规则）
 _QUESTION_NEGATIVE_RE = re.compile(

@@ -61,7 +61,7 @@ else
     esac
     
     # 启动 Flask
-    python flask-version/app.py $HEADLESS_FLAG &
+    python -m flask_version.app $HEADLESS_FLAG &
     FLASK_PID=$!
     
     # 等待 Flask 就绪

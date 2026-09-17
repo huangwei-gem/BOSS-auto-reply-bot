@@ -152,22 +152,64 @@ def set_preferred_browser(name: str):
     _preferred_browser = name
 
 
-def _find_chrome_path() -> str:
-    """自动查找浏览器路径，优先使用用户选择的，其次系统默认"""
-    available = detect_available_browsers()
-    if not available:
+def _get_portable_chrome_path() -> str:
+    """获取 Windows 便携版 Chrome 路径
+
+    查找位置（按优先级）：
+    1. 当前工作目录下的 cloakbrowser-windows-x64/
+    2. boss_bot/ 同级目录（项目根目录）下的 cloakbrowser-windows-x64/
+    """
+    if not _IS_WINDOWS:
         return ""
 
-    # 1. 用户手动选择的
-    if _preferred_browser and _preferred_browser in available:
-        return available[_preferred_browser]
+    # 可能的路径列表
+    possible_paths = [
+        os.path.join(os.getcwd(), "cloakbrowser-windows-x64", "chrome.exe"),
+        os.path.join(os.path.dirname(__file__), "..", "cloakbrowser-windows-x64", "chrome.exe"),
+    ]
 
-    # 2. 系统默认浏览器
-    default = _detect_default_browser()
-    if default in available:
-        return available[default]
+    for portable_path in possible_paths:
+        portable_path = os.path.normpath(portable_path)
+        if os.path.isfile(portable_path):
+            size = os.path.getsize(portable_path)
+            # 确保是真正的 Chrome（>1MB），不是空文件
+            if size > 1_000_000:
+                return portable_path
+    return ""
 
-    # 3. 按优先级兜底
+
+def _find_chrome_path() -> str:
+    """自动查找浏览器路径
+
+    优先级：
+    1. 用户手动选择的浏览器
+    2. Windows 便携版 Chrome（cloakbrowser-windows-x64/）
+    3. 系统默认浏览器
+    4. 按优先级兜底（chrome → edge → chromium）
+    """
+    available = detect_available_browsers()
+    portable = _get_portable_chrome_path()
+
+    # 1. 用户手动选择的浏览器（最高优先级，允许用户覆盖便携版）
+    if _preferred_browser:
+        if _preferred_browser == "portable":
+            if portable:
+                return portable
+        elif _preferred_browser in available:
+            return available[_preferred_browser]
+
+    # 2. Windows 便携版 Chrome（默认使用）
+    if portable:
+        logger.info(f"使用便携版 Chrome: {portable}")
+        return portable
+
+    # 3. 系统默认浏览器
+    if available:
+        default = _detect_default_browser()
+        if default in available:
+            return available[default]
+
+    # 4. 按优先级兜底
     for key in ("chrome", "edge", "chromium"):
         if key in available:
             return available[key]

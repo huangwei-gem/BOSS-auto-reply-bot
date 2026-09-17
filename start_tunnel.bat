@@ -80,7 +80,7 @@ if "!FLASK_RUNNING!"=="1" (
     
     REM 启动 Flask（后台）
     echo   [INFO] 正在启动 Flask...
-    start /b python flask-version\app.py !HEADLESS_FLAG!
+    start /b python -m flask_version.app !HEADLESS_FLAG!
     
     REM 等待 Flask 就绪
     set "WAIT_COUNT=0"

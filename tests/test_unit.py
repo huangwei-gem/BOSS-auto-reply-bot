@@ -23,7 +23,7 @@ class TestIntent(unittest.TestCase):
     """意图分类"""
 
     def test_invite_interview(self):
-        from intent import classify
+        from boss_bot.intent import classify
         cases = [
             "明天下午方便来公司面试吗？",
             "想邀您来公司聊聊",
@@ -35,7 +35,7 @@ class TestIntent(unittest.TestCase):
             self.assertEqual(classify(c), "invite_interview", f"应识别为邀约: {c}")
 
     def test_ask_salary(self):
-        from intent import classify
+        from boss_bot.intent import classify
         cases = [
             "你们这边给的预算范围是多少呀？",
             "这个岗位薪资待遇怎么样？",
@@ -46,38 +46,38 @@ class TestIntent(unittest.TestCase):
             self.assertEqual(classify(c), "ask_salary", f"应识别为问薪资: {c}")
 
     def test_ask_resume(self):
-        from intent import classify
+        from boss_bot.intent import classify
         for c in ["方便发一下简历吗？", "发个简历给我看看", "我想看看你的简历"]:
             self.assertEqual(classify(c), "ask_resume", f"应识别为要简历: {c}")
 
     def test_tell_salary(self):
-        from intent import classify
+        from boss_bot.intent import classify
         self.assertEqual(classify("我们薪资是12-15K，你看可以吗"), "tell_salary")
 
     def test_greeting(self):
-        from intent import classify
+        from boss_bot.intent import classify
         for c in ["您好", "你好呀", "在吗？", "hello", "早上好，", "在不在"]:
             self.assertEqual(classify(c), "greeting", f"应识别为问候: {c}")
 
     def test_ask_job_content(self):
-        from intent import classify
+        from boss_bot.intent import classify
         for c in ["这个岗位主要做什么呢？", "介绍下岗位职责", "日常工作内容是什么"]:
             self.assertEqual(classify(c), "ask_job_content", f"应识别为问工作内容: {c}")
 
     def test_contact_request(self):
-        from intent import classify
+        from boss_bot.intent import classify
         for c in ["加个微信吧", "方便留个联系方式吗", "你电话多少"]:
             self.assertEqual(classify(c), "contact_request", f"应识别为要联系方式: {c}")
 
     def test_other(self):
-        from intent import classify
+        from boss_bot.intent import classify
         self.assertEqual(classify("好的，我考虑一下"), "other")
         self.assertEqual(classify(""), "other")
         self.assertEqual(classify(None), "other")
 
     def test_priority(self):
         """邀约优先于薪资（一句话包含两者）"""
-        from intent import classify
+        from boss_bot.intent import classify
         self.assertEqual(classify("薪资多少都好说，明天来公司面试吧"), "invite_interview")
 
 
@@ -85,30 +85,30 @@ class TestRuleEngine(unittest.TestCase):
     """关键词规则直通"""
 
     def test_resume_action(self):
-        from rules import RuleEngine
+        from boss_bot.rules import RuleEngine
         engine = RuleEngine()
         self.assertEqual(engine.match("方便发一下简历吗？"), ("resume", None))
 
     def test_text_reply(self):
-        from rules import RuleEngine
+        from boss_bot.rules import RuleEngine
         engine = RuleEngine()
         action, content = engine.match("你们的薪资待遇怎么样")
         self.assertEqual(action, "text")
         self.assertIn("薪资", content)
 
     def test_no_match(self):
-        from rules import RuleEngine
+        from boss_bot.rules import RuleEngine
         engine = RuleEngine()
         self.assertIsNone(engine.match("好的我考虑一下"))
 
     def test_case_insensitive(self):
-        from rules import RuleEngine
+        from boss_bot.rules import RuleEngine
         engine = RuleEngine({"OFFER": "好的"})
         self.assertEqual(engine.match("OFFER"), ("text", "好的"))
 
     def test_question_context_no_false_match(self):
         """疑问/否定上下文不应触发动作（"是否投递过简历"≠要简历）"""
-        from rules import RuleEngine
+        from boss_bot.rules import RuleEngine
         engine = RuleEngine()
         self.assertIsNone(engine.match("同学好，请问是否公司官网投递过简历？"))
         self.assertIsNone(engine.match("不用发简历，等通知就好"))
@@ -123,7 +123,7 @@ class TestEventLogger(unittest.TestCase):
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="bot_test_events_"))
-        import event_logger
+        import boss_bot.event_logger as event_logger
         self.event_logger = event_logger
 
     def test_event_written_as_jsonl(self):
@@ -155,7 +155,7 @@ class TestAIRateLimit(unittest.TestCase):
     """AI 容错：限流重试、空 Key 跳过"""
 
     def test_is_rate_limit_error(self):
-        from reply_engine import ReplyEngine
+        from boss_bot.reply_engine import ReplyEngine
         engine = ReplyEngine.__new__(ReplyEngine)
         self.assertTrue(engine._is_rate_limit_error(Exception("Error code: 429 - limit")))
         self.assertTrue(engine._is_rate_limit_error(Exception("rate_limit_error: too fast")))
@@ -163,8 +163,8 @@ class TestAIRateLimit(unittest.TestCase):
 
     def test_rate_limit_retry_then_success(self):
         """429 后等待重试一次，第二次成功"""
-        import config
-        from reply_engine import ReplyEngine
+        import boss_bot.config as config
+        from boss_bot.reply_engine import ReplyEngine
         engine = ReplyEngine()
         calls = {"n": 0}
 
@@ -185,8 +185,8 @@ class TestAIRateLimit(unittest.TestCase):
             config.AI_RATE_LIMIT_WAIT = old_wait
 
     def test_rate_limit_two_fails_returns_none(self):
-        import config
-        from reply_engine import ReplyEngine
+        import boss_bot.config as config
+        from boss_bot.reply_engine import ReplyEngine
         engine = ReplyEngine()
         calls = {"n": 0}
 
@@ -205,19 +205,44 @@ class TestAIRateLimit(unittest.TestCase):
             config.AI_RATE_LIMIT_WAIT = old_wait
 
     def test_skip_main_api_when_keys_empty(self):
-        """主 API Key 全空时直接走备用，不浪费时间"""
-        import config
-        from reply_engine import ReplyEngine
-        old_main, old_backup = config.AI_API_KEYS, config.AI_BACKUP_API_KEYS
-        config.AI_API_KEYS = ["", "", ""]
-        config.AI_BACKUP_API_KEYS = ["backup_key"]
+        """模型池为空时返回 None"""
+        import boss_bot.config as config
+        from boss_bot.reply_engine import ReplyEngine
+        old_providers = config.AI_PROVIDERS
+        config.AI_PROVIDERS = []
         try:
             engine = ReplyEngine()
-            engine._call_chat = lambda *a, **k: "备用回复"
             reply = engine._ask_ai("测试消息", "HR", "岗位")
-            self.assertEqual(reply, "备用回复")
+            self.assertIsNone(reply)
         finally:
-            config.AI_API_KEYS, config.AI_BACKUP_API_KEYS = old_main, old_backup
+            config.AI_PROVIDERS = old_providers
+
+    def test_multi_provider_fallback(self):
+        """第一个模型失败时自动切换到下一个"""
+        import boss_bot.config as config
+        from boss_bot.reply_engine import ReplyEngine
+
+        call_count = {"n": 0}
+
+        def fake_call(*a, **k):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise Exception("429 rate limit")
+            return "第二个模型回复"
+
+        old_providers = config.AI_PROVIDERS
+        config.AI_PROVIDERS = [
+            {"key": "key1", "model": "model1", "url": "https://api.example.com/v1"},
+            {"key": "key2", "model": "model2", "url": "https://api.example.com/v1"},
+        ]
+        try:
+            engine = ReplyEngine()
+            engine._call_chat = fake_call
+            reply = engine._ask_ai("测试消息", "HR", "岗位")
+            self.assertEqual(reply, "第二个模型回复")
+            self.assertEqual(call_count["n"], 2)
+        finally:
+            config.AI_PROVIDERS = old_providers
 
 
 class TestStateStore(unittest.TestCase):
@@ -225,7 +250,7 @@ class TestStateStore(unittest.TestCase):
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="bot_test_state_"))
-        from state_store import StateStore
+        from boss_bot.state_store import StateStore
         self.StateStore = StateStore
         self.path = self.tmp / "state.json"
 
@@ -278,7 +303,7 @@ class TestStats(unittest.TestCase):
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="bot_test_stats_"))
-        from stats import Stats
+        from boss_bot.stats import Stats
         self.Stats = Stats
         self.path = self.tmp / "stats.json"
 
@@ -314,7 +339,7 @@ class TestNotifier(unittest.TestCase):
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="bot_test_notify_"))
-        from notify import Notifier
+        from boss_bot.notify import Notifier
         self.Notifier = Notifier
         self.path = self.tmp / "notifications.json"
 
@@ -353,7 +378,7 @@ class TestReplyEngine(unittest.TestCase):
     """回复引擎决策"""
 
     def setUp(self):
-        from reply_engine import ReplyEngine
+        from boss_bot.reply_engine import ReplyEngine
         self.engine = ReplyEngine()
 
     def test_rule_passthrough(self):
@@ -375,8 +400,8 @@ class TestReplyEngine(unittest.TestCase):
 
     def test_ai_fail_skip(self):
         """AI 失败时 skip（默认策略）"""
-        import config
-        from reply_engine import ReplyEngine
+        import boss_bot.config as config
+        from boss_bot.reply_engine import ReplyEngine
         old = config.AI_FAIL_ACTION
         config.AI_FAIL_ACTION = "skip"
         try:
@@ -390,8 +415,8 @@ class TestReplyEngine(unittest.TestCase):
 
     def test_ai_fail_default(self):
         """AI 失败时按配置发默认话术"""
-        import config
-        from reply_engine import ReplyEngine
+        import boss_bot.config as config
+        from boss_bot.reply_engine import ReplyEngine
         old = config.AI_FAIL_ACTION
         config.AI_FAIL_ACTION = "default"
         try:
@@ -420,8 +445,8 @@ class TestReplyEngine(unittest.TestCase):
         self.assertEqual(meta["intent"], "ask_salary")
 
     def test_rate_limit(self):
-        import config
-        from reply_engine import ReplyEngine
+        import boss_bot.config as config
+        from boss_bot.reply_engine import ReplyEngine
         old = config.MAX_REPLIES_PER_HOUR
         config.MAX_REPLIES_PER_HOUR = 2
         try:
@@ -438,7 +463,7 @@ class TestProfileTemplate(unittest.TestCase):
     """画像加载与模板渲染"""
 
     def test_render_template(self):
-        from config import render_template
+        from boss_bot.config import render_template
         profile = {"salary_expectation": "15-20K", "position": "后端开发", "skills": ["Go", "MySQL"]}
         self.assertEqual(render_template("期望{salary}", profile), "期望15-20K")
         self.assertEqual(render_template("做{position}的", profile), "做后端开发的")
@@ -447,8 +472,8 @@ class TestProfileTemplate(unittest.TestCase):
         self.assertEqual(render_template("", profile), "")
 
     def test_load_user_profile(self):
-        import config
-        from config import load_user_profile, USER_PROFILE
+        import boss_bot.config as config
+        from boss_bot.config import load_user_profile, USER_PROFILE
         p = load_user_profile()
         self.assertIn("position", p)
         self.assertIn("salary_expectation", p)
@@ -456,7 +481,7 @@ class TestProfileTemplate(unittest.TestCase):
         self.assertIn(USER_PROFILE["salary_expectation"], config.SALARY_REPLY)
 
     def test_system_prompt_from_profile(self):
-        from prompts import build_system_prompt
+        from boss_bot.prompts import build_system_prompt
         prompt = build_system_prompt({
             "education": "硕士", "position": "算法", "skills": ["PyTorch"],
             "experience": "两段实习", "salary_expectation": "30K",
@@ -469,7 +494,7 @@ class TestProfileTemplate(unittest.TestCase):
         self.assertIn("对话历史", prompt)
 
     def test_user_prompt_history(self):
-        from prompts import build_user_prompt
+        from boss_bot.prompts import build_user_prompt
         msgs = [
             {"text": "你好", "is_mine": False},
             {"text": "您好", "is_mine": True},

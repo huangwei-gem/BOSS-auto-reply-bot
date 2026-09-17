@@ -24,7 +24,7 @@ class Stats:
     """统计数据存储（JSON 文件持久化，线程安全）"""
 
     def __init__(self, path=None):
-        from config import STATS_FILE
+        from boss_bot.config import STATS_FILE
         self.path = Path(path) if path else Path(STATS_FILE)
         self._lock = threading.Lock()
         self._data = self._load()

@@ -21,7 +21,7 @@ class EventLogger:
     """结构化事件记录器（线程安全，按天分文件）"""
 
     def __init__(self, log_dir=None, enabled=None):
-        import config
+        import boss_bot.config as config
         self.log_dir = Path(log_dir) if log_dir else Path(config.LOG_DIR)
         self.enabled = config.EVENT_LOG_ENABLED if enabled is None else enabled
         self._lock = threading.Lock()

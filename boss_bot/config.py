@@ -6,8 +6,11 @@ import os
 import json
 from pathlib import Path
 
+# 项目根目录（boss_bot/ 的上一级）
+BASE_DIR = Path(__file__).parent.parent
+
 # 加载 .env 文件（如果存在）
-_env_path = Path(__file__).parent / ".env"
+_env_path = BASE_DIR / ".env"
 if _env_path.exists():
     with open(_env_path, "r", encoding="utf-8") as f:
         for line in f:
@@ -18,8 +21,6 @@ if _env_path.exists():
                 value = value.strip()
                 if key and not os.environ.get(key):
                     os.environ[key] = value
-
-BASE_DIR = Path(__file__).parent
 
 # 测试模式：配合 test_full_run.py 使用本地 mock 页面，不访问真实站点
 TEST_MODE = os.environ.get("BOSS_BOT_TEST_MODE", "") == "1"
@@ -141,44 +142,100 @@ if "importance_keywords" in _OVERRIDES:
 # 是否启用 AI 回复（规则未匹配时）
 ENABLE_AI = os.environ.get("ENABLE_AI", "false").lower() == "true"
 
-# AI API 配置（OpenAI 兼容格式）
-# 从环境变量读取 API Key，避免明文存储
-# 复制 .env.example 为 .env 并填入你的 API Key
-AI_API_KEYS = [
-    os.environ.get("AI_API_KEY_1", ""),
-    os.environ.get("AI_API_KEY_2", ""),
-    os.environ.get("AI_API_KEY_3", ""),
-]
-AI_MODELS = [
-    os.environ.get("AI_MODEL_1", "agnes-2.5-flash"),
-    os.environ.get("AI_MODEL_2", "deepseek-v4-flash"),
-    os.environ.get("AI_MODEL_3", "deepseek-v4-flash"),
-]
-AI_BASE_URL = os.environ.get("AI_BASE_URL", "https://apihub.agnes-ai.com/v1")
+# AI 模型池配置
+# 每个模型一个 (api_key, model_name, base_url) 元组
+# 调用时随机选择一个，失败时自动切换到下一个
+# 配置方式：AI_PROVIDERS_1=key|model|url, AI_PROVIDERS_2=key|model|url, ...
+def _parse_ai_providers(env_prefix: str = "AI_PROVIDERS") -> list:
+    """解析 AI 提供商配置，支持多模型自动切换
 
-# 备用 API（日日新 Sensenova）
-AI_BACKUP_API_KEYS = [
-    os.environ.get("AI_BACKUP_KEY_1", ""),
-    os.environ.get("AI_BACKUP_KEY_2", ""),
-]
-AI_BACKUP_MODELS = [
-    os.environ.get("AI_BACKUP_MODEL_1", "deepseek-v4-flash"),
-    os.environ.get("AI_BACKUP_MODEL_2", "deepseek-v4-flash"),
-]
-AI_BACKUP_BASE_URL = os.environ.get("AI_BACKUP_BASE_URL", "https://token.sensenova.cn/v1")
+    环境变量格式：AI_PROVIDERS_1=api_key|model_name|base_url
+    示例：
+        AI_PROVIDERS_1=sk-xxx|agnes-2.5-flash|https://apihub.agnes-ai.com/v1
+        AI_PROVIDERS_2=sk-yyy|deepseek-v4-flash|https://token.sensenova.cn/v1
+        AI_PROVIDERS_3=sk-zzz|deepseek-v4-flash|https://token.sensenova.cn/v1
+    """
+    providers = []
+    for i in range(1, 20):  # 最多支持 20 个配置
+        value = os.environ.get(f"{env_prefix}_{i}", "")
+        if not value:
+            continue
+        parts = value.split("|")
+        if len(parts) >= 2:
+            key = parts[0].strip()
+            model = parts[1].strip()
+            url = parts[2].strip() if len(parts) >= 3 else "https://apihub.agnes-ai.com/v1"
+            if key and model:
+                providers.append({"key": key, "model": model, "url": url})
+    return providers
 
-# 兜底 API（DeepSeek — 最稳定，OpenAI 兼容格式）
-AI_FALLBACK_API_KEY = os.environ.get("AI_FALLBACK_KEY", "")
-AI_FALLBACK_MODEL = os.environ.get("AI_FALLBACK_MODEL", "deepseek-flash")
-AI_FALLBACK_BASE_URL = os.environ.get("AI_FALLBACK_BASE_URL", "https://api.deepseek.com")
+
+AI_PROVIDERS = _parse_ai_providers("AI_PROVIDERS")
+
+# 兼容旧配置格式（向后兼容）
+def _build_providers_from_legacy() -> list:
+    """从旧格式配置构建 providers 列表"""
+    providers = []
+
+    # 主 API（Agnes）
+    main_keys = [
+        os.environ.get("AI_API_KEY_1", ""),
+        os.environ.get("AI_API_KEY_2", ""),
+        os.environ.get("AI_API_KEY_3", ""),
+    ]
+    main_models = [
+        os.environ.get("AI_MODEL_1", "agnes-2.5-flash"),
+        os.environ.get("AI_MODEL_2", "agnes-2.5-flash"),
+        os.environ.get("AI_MODEL_3", "agnes-2.5-flash"),
+    ]
+    main_url = os.environ.get("AI_BASE_URL", "https://apihub.agnes-ai.com/v1")
+    for key, model in zip(main_keys, main_models):
+        if key:
+            providers.append({"key": key, "model": model, "url": main_url})
+
+    # 备用 API（商汤 Sensenova）
+    backup_keys = [
+        os.environ.get("AI_BACKUP_KEY_1", ""),
+        os.environ.get("AI_BACKUP_KEY_2", ""),
+    ]
+    backup_models = [
+        os.environ.get("AI_BACKUP_MODEL_1", "deepseek-v4-flash"),
+        os.environ.get("AI_BACKUP_MODEL_2", "deepseek-v4-flash"),
+    ]
+    backup_url = os.environ.get("AI_BACKUP_BASE_URL", "https://token.sensenova.cn/v1")
+    for key, model in zip(backup_keys, backup_models):
+        if key:
+            providers.append({"key": key, "model": model, "url": backup_url})
+
+    # 兜底 API（DeepSeek 官方）
+    fallback_key = os.environ.get("AI_FALLBACK_KEY", "")
+    fallback_model = os.environ.get("AI_FALLBACK_MODEL", "deepseek-flash")
+    fallback_url = os.environ.get("AI_FALLBACK_BASE_URL", "https://api.deepseek.com")
+    if fallback_key:
+        providers.append({"key": fallback_key, "model": fallback_model, "url": fallback_url})
+
+    return providers
+
+
+# 如果没有新的 PROVIDERS 配置，使用旧格式
+if not AI_PROVIDERS:
+    AI_PROVIDERS = _build_providers_from_legacy()
+
+# 快捷访问属性（兼容旧代码）
+AI_API_KEYS = [p["key"] for p in AI_PROVIDERS]
+AI_MODELS = [p["model"] for p in AI_PROVIDERS]
+AI_BASE_URL = AI_PROVIDERS[0]["url"] if AI_PROVIDERS else ""
 
 # AI 回复的最大 token 数
-AI_MAX_TOKENS = 200
+AI_MAX_TOKENS = int(os.environ.get("AI_MAX_TOKENS", "200"))
 
-# AI 主备 API 全部失败时的行为:
+# AI 全部失败时的行为:
 #   skip    - 跳过不回复（推荐，避免驴唇不对马嘴）
 #   default - 发送默认兜底话术
 AI_FAIL_ACTION = os.environ.get("AI_FAIL_ACTION", "skip").lower()
+
+# API 限流（429）时等待重试的秒数
+AI_RATE_LIMIT_WAIT = int(os.environ.get("AI_RATE_LIMIT_WAIT", "30"))
 
 # ===================== 回复内容配置 =====================
 

@@ -25,7 +25,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt -i https://pypi.org/simple/ \
-    && pip install --no-cache-dir browser-use playwright flask -i https://pypi.org/simple/
+    && pip install --no-cache-dir flask openai -i https://pypi.org/simple/
 
 COPY . .
 
@@ -34,4 +34,4 @@ RUN mkdir -p messages logs accounts cookie_backups
 
 EXPOSE 5001
 
-CMD ["python", "flask-version/app.py"]
+CMD ["python", "-m", "boss_bot"]

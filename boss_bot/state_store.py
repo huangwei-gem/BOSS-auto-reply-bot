@@ -18,7 +18,7 @@ class StateStore:
     """会话状态存储（JSON 文件持久化，线程安全）"""
 
     def __init__(self, path=None):
-        from config import STATE_FILE
+        from boss_bot.config import STATE_FILE
         self.path = Path(path) if path else Path(STATE_FILE)
         self._lock = threading.Lock()
         self._data = self._load()
