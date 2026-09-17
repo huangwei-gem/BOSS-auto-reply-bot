@@ -60,6 +60,60 @@ cd sturgeon
 | **macOS** | `./start_bot.sh` | `/Applications/Google Chrome.app` |
 | **Linux** | `./start_bot.sh` | `google-chrome` / `chromium` |
 
+## 便携版 Chrome（Windows）
+
+项目默认使用 `cloakbrowser-windows-x64/` 目录下的便携版 Chrome（无需安装，开箱即用）。
+
+由于文件较大（~537MB），便携版 Chrome 未包含在 Git 仓库中。首次使用请下载：
+
+### 下载方式
+
+1. **下载便携版 Chrome**：
+
+   **方式一：CloakBrowser（推荐，带反检测）**
+   - GitHub：https://github.com/CloakHQ/CloakBrowser
+   - Windows x64 下载：https://github.com/CloakHQ/CloakBrowser/releases/download/chromium-v145.0.7632.109.2/cloakbrowser-windows-x64.zip
+   - macOS ARM64 下载：https://github.com/CloakHQ/CloakBrowser/releases/download/chromium-v145.0.7632.109.2/cloakbrowser-darwin-arm64.tar.gz
+
+   **方式二：Chrome-for-Testing（Google 官方）**
+   - 下载地址：https://github.com/GoogleChromeLabs/chrome-for-testing
+   - 选择 `chrome-win64` 版本下载
+
+   **方式三：自行打包**
+   - 安装 Chrome 后，复制安装目录到 `cloakbrowser-windows-x64/`
+
+2. **解压到项目根目录**：
+   ```
+   BOSS-auto-reply-bot/
+   └── cloakbrowser-windows-x64/
+       ├── chrome.exe
+       ├── chrome.dll
+       └── ...
+   ```
+
+3. **启动脚本会自动检测并使用便携版 Chrome**
+
+> 如果没有便携版 Chrome，脚本会自动检测系统安装的 Google Chrome 或 Microsoft Edge。
+
+### 浏览器选择
+
+Web 管理界面（http://127.0.0.1:5001）支持在线切换浏览器：
+- 便携版 Chrome（默认）
+- 系统 Google Chrome
+- Microsoft Edge
+
+也可以通过 API 切换：
+```bash
+# 查看可用浏览器
+curl http://127.0.0.1:5001/api/browser/detect
+
+# 切换到便携版
+curl -X POST http://127.0.0.1:5001/api/browser/select -H "Content-Type: application/json" -d '{"browser":"portable"}'
+
+# 切换到系统 Chrome
+curl -X POST http://127.0.0.1:5001/api/browser/select -H "Content-Type: application/json" -d '{"browser":"chrome"}'
+```
+
 ## 项目结构
 
 ```

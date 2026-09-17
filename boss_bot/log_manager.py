@@ -204,6 +204,9 @@ def setup_logging(level: str = None, retention_days: int = None):
     console = logging.StreamHandler()
     console.setLevel(getattr(logging, level, logging.INFO))
     console.setFormatter(logging.Formatter(CONSOLE_FORMAT, datefmt=CONSOLE_DATEFMT))
+    # 设置控制台输出编码为 UTF-8
+    if hasattr(console.stream, 'reconfigure'):
+        console.stream.reconfigure(encoding='utf-8', errors='replace')
     root.addHandler(console)
 
     # ---- 2. 主日志文件（所有日志）----

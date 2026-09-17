@@ -17,10 +17,17 @@ BOSS 自动回复机器人 - Flask Web 管理界面
 """
 import os
 import sys
+import io
 import logging
 import warnings
 from datetime import datetime
 from pathlib import Path
+
+# 设置标准输出编码为 UTF-8
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+if sys.stderr.encoding != 'utf-8':
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 from flask import Flask, render_template, jsonify
 
