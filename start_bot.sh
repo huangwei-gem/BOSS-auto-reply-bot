@@ -18,7 +18,7 @@ elif command -v python &>/dev/null; then
     PYTHON=python
 else
     echo "  [ERROR] 未找到 Python，请先安装 Python 3.8+"
-    echo "  下载地址: https://www.python.org/downloads/"
+    echo "  下载地址:<https://www.python.org/downloads/>"
     exit 1
 fi
 
@@ -53,11 +53,11 @@ read -p "  请输入选项 [1/2]（默认 1）: " MODE_CHOICE
 
 case "$MODE_CHOICE" in
     2)
-        HEADLESS_FLAG="--headless"
+        export BOSS_BOT_HEADLESS=1
         MODE_LABEL="无头模式"
         ;;
     *)
-        HEADLESS_FLAG=""
+        unset BOSS_BOT_HEADLESS
         MODE_LABEL="有头模式"
         ;;
 esac
@@ -65,26 +65,45 @@ esac
 echo "  已选择: $MODE_LABEL"
 echo ""
 
-# ── 启动 ──
+# ── 选择启动方式 ──
+echo "  请选择启动方式："
+echo "    1) Flask Web 管理界面（推荐，含自进化、多账号管理）"
+echo "    2) 命令行模式（直接运行 main.py）"
+echo ""
+read -p "  请输入选项 [1/2]（默认 1）: " LAUNCH_CHOICE
+
+echo ""
 echo "  ========================================"
 echo "  🚀 启动地址: http://127.0.0.1:5001"
 echo "  📋 运行模式: $MODE_LABEL"
 echo "  ========================================"
+echo ""
+echo "  💡 提示："
+echo "     - 首次使用需手动登录 BOSS 直聘"
+echo "     - 有头模式下如遇到安全验证，请在浏览器窗口中手动完成"
+echo "     - 登录后 Cookie 自动保存，下次启动自动登录"
+echo ""
 
-python -m flask_version.app &
-SERVER_PID=$!
+if [ "$LAUNCH_CHOICE" = "2" ]; then
+    # 命令行模式
+    python -m boss_bot ${BOSS_BOT_HEADLESS:+--headless}
+else
+    # Flask Web 模式
+    python flask-version/app.py &
+    SERVER_PID=$!
 
-# Ctrl+C 时终止后台服务
-trap "kill $SERVER_PID 2>/dev/null; exit" INT TERM
+    # Ctrl+C 时终止后台服务
+    trap "kill $SERVER_PID 2>/dev/null; exit" INT TERM
 
-# 等待服务就绪
-sleep 2
+    # 等待服务就绪
+    sleep 2
 
-# 自动打开浏览器（有头模式才打开管理界面）
-if [ "$MODE_LABEL" = "有头模式" ]; then
-    echo "  🌐 正在打开浏览器..."
-    open "http://127.0.0.1:5001" 2>/dev/null || xdg-open "http://127.0.0.1:5001" 2>/dev/null || true
+    # 自动打开浏览器（有头模式才打开管理界面）
+    if [ "$MODE_LABEL" = "有头模式" ]; then
+        echo "  🌐 正在打开管理界面..."
+        open "http://127.0.0.1:5001" 2>/dev/null || xdg-open "http://127.0.0.1:5001" 2>/dev/null || true
+    fi
+
+    # 等待服务端退出
+    wait $SERVER_PID
 fi
-
-# 等待服务端退出
-wait $SERVER_PID

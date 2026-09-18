@@ -15,6 +15,7 @@ BOSS 自动回复机器人 - 主入口
 
 import logging
 import os
+import random
 import signal
 import sys
 import time
@@ -281,9 +282,9 @@ def main():
             logger.error(f"运行时错误: {e}", exc_info=True)
             events.event("error", where="main_loop", error=str(e)[:300])
 
-        # 等待下一次检查
+        # 等待下一次检查（随机抖动避免固定节奏被检测）
         if running:
-            time.sleep(CHECK_INTERVAL)
+            time.sleep(CHECK_INTERVAL + random.uniform(0, 10))
 
     # 清理
     logger.info("正在关闭浏览器...")

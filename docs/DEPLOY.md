@@ -1,146 +1,55 @@
-# 免费线上部署指南
+# 免费线上部署指南（无需信用卡）
 
-本项目支持三种免费部署方式，按推荐程度排序：
+本项目支持两种免费部署方式，**均不需要信用卡**：
 
-| 方案 | 适合场景 | 是否需要公网 IP | 持续运行 |
-|------|---------|----------------|---------|
-| **Oracle Cloud 免费 VPS**（最推荐） | 7×24 时刻后台运行 | ✅ 自带公网 IP | ✅ 24/7 |
-| **本机 + Cloudflare Tunnel** | 用自己电脑跑，外网可访问管理界面 | ❌ 无需公网 IP | ⚠️ 依赖本机开机 |
-| **Render.com / Hugging Face Spaces** | 仅 Web 管理界面（浏览器自动化受限） | ✅ 平台提供 | ⚠️ 免费版会休眠 |
-
-> **重要说明**：本项目需要真实浏览器（Chrome/Chromium）运行自动化，最理想的免费方案是
-> **Oracle Cloud Always Free VPS**（ARM 4核24G，永久免费，可 24/7 运行无头浏览器）。
+| 方案 | 适合场景 | 是否需要信用卡 | 持续运行 |
+|------|---------|---------------|---------|
+| **本机 + Cloudflare Tunnel**（推荐） | 用自己电脑跑，外网可访问管理界面 | ❌ 不需要 | ⚠️ 依赖本机开机 |
+| **Hugging Face Spaces** | 免费 Docker 容器，24/7 运行 | ❌ 不需要 | ✅ 24/7（有资源限制） |
 
 ---
 
-## 方案一：Oracle Cloud 免费 VPS（最推荐）
+## 方案一：本机 + Cloudflare Tunnel（推荐，5 分钟搞定）
 
-### 免费额度（Always Free，永久免费，不是试用期）
+**原理**：在你自己的电脑上运行机器人，通过 Cloudflare Tunnel 把 Flask 管理界面暴露到公网，任何人都可以通过浏览器访问。
 
-- **AMD 实例**：2 台 `VM.Standard.E2.1.Micro`（1核 1G 内存 / 每台）
-- **ARM 实例**：最高 4 核 24GB 内存（`VM.Standard.A1.Flex`，可拆成 1台 4核 或 4台 1核）
-- **存储**：200GB 总量块存储
-- **流量**：每月 10TB 出站流量（完全够用）
-- **配置要求**：注册需一张信用卡（仅验证身份，免费套餐不扣费）
+**优点**：
+- 完全免费，不需要信用卡
+- 不需要公网 IP
+- 不需要域名（临时 URL 即可用）
+- 你的电脑能跑 Chrome，浏览器自动化无障碍
+- Cookie 安全存在本机，不上传到任何服务器
 
-### 注册条件
+**缺点**：
+- 电脑关机/休眠后机器人停止运行
+- 临时 URL 每次重启会变（绑定域名后可固定）
 
-1. 年满 18 岁，一张支持外币的信用卡（Visa/MasterCard）
-2. 一个手机号（验证用）
-3. 电子邮箱
-4. 选择"Home Region"（注册后不可更改，建议选 `ap-osaka-1` / `ap-seoul-1` / `us-ashburn-1`，国内访问延迟较低可选首尔/大阪）
+### 步骤 1：安装 cloudflared
 
-### 申请步骤
+| 平台 | 命令 |
+|------|------|
+| **macOS** | `brew install cloudflared` |
+| **Linux** | `wget https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 && chmod +x cloudflared-linux-amd64 && sudo mv cloudflared-linux-amd64 /usr/local/bin/cloudflared` |
+| **Windows** | 从 [GitHub Releases](https://github.com/cloudflare/cloudflared/releases) 下载 `cloudflared-windows-amd64.exe` |
 
-1. 访问 https://www.oracle.com/cloud/free/ → 点击 **Start for free**
-2. 填写邮箱、国家 → 验证邮箱
-3. 填写姓名、地址（与信用卡账单地址一致）→ 绑定信用卡验证（会预扣 1 美元再退回）
-4. 选择 Home Region → 提交注册
-5. 注册成功后登录 https://cloud.oracle.com
-
-### 创建免费 VM 实例
-
-1. 控制台左侧菜单 → **Compute** → **Instances** → **Create Instance**
-2. 配置：
-   - **Image**: Ubuntu 22.04（或 24.04）
-   - **Shape**: `VM.Standard.A1.Flex`（ARM，免费额度内选 4 OCPU + 24GB 内存最佳）
-   - **SSH Key**: 上传你的公钥或下载生成的私钥
-3. 创建后记录公网 IP
-
-### 部署本项目（ARM Ubuntu）
+### 步骤 2：启动机器人
 
 ```bash
-# 1. SSH 连接（首次用下载的私钥）
-ssh -i <私钥路径> ubuntu@<公网IP>
-
-# 2. 安装基础环境
-sudo apt update && sudo apt upgrade -y
-sudo apt install -y python3.12 python3.12-venv git chromium-browser fonts-noto-cjk
-# 字体必须装，否则页面中文乱码导致选择器失效
-
-# 3. 克隆项目
-git clone <你的仓库地址>
-cd sturgeon
-
-# 4. 创建虚拟环境并安装依赖
-python3.12 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-pip install browser-use playwright flask
-playwright install chromium
-
-# 5. 配置环境变量
-cp .env.example .env
-nano .env   # 填入 AI_API_KEY_1 等
-
-# 6. Docker 方式（推荐，隔离环境更干净）
-sudo apt install -y docker.io docker-compose-v2
-sudo usermod -aG docker ubuntu
-docker compose up -d --build
+./start_bot.sh    # macOS / Linux
+start_bot.bat     # Windows
 ```
 
-### 开放端口
+### 步骤 3：启动 Cloudflare Tunnel
 
-控制台 → **Networking** → **Virtual Cloud Networks** → 你的 VCN →
-**Security Lists** → Default Security List → **Add Ingress Rule**：
-- Source CIDR: `0.0.0.0/0`
-- IP Protocol: `TCP`
-- Destination Port Range: `5001`
+**快速模式（无需域名，临时 URL）**：
 
 ```bash
-# 同时在系统防火墙放行
-sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 5001 -j ACCEPT
-sudo netfilter-persistent save
+./start_tunnel.sh    # macOS / Linux
+start_tunnel.bat     # Windows
 ```
 
-访问 `http://<公网IP>:5001` 即可打开 Web 管理界面。
-
-### 开机自启（时刻后台运行）
-
-用 systemd 创建服务：
-
+或者手动执行：
 ```bash
-sudo tee /etc/systemd/system/boss-bot.service > /dev/null <<EOF
-[Unit]
-Description=BOSS Auto Reply Bot
-After=network.target
-
-[Service]
-User=ubuntu
-WorkingDirectory=/home/ubuntu/sturgeon
-Environment=PATH=/home/ubuntu/sturgeon/venv/bin:/usr/bin
-ExecStart=/home/ubuntu/sturgeon/venv/bin/python flask-version/app.py
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable --now boss-bot
-sudo systemctl status boss-bot   # 查看状态
-journalctl -u boss-bot -f        # 看实时日志
-```
-
----
-
-## 方案二：本机 + Cloudflare Tunnel（内网穿透，5 分钟）
-
-适合：不想买服务器、想让别人访问你本机上的 Web 管理界面。
-
-### 前提
-
-- 一个 Cloudflare 账号（免费注册 https://dash.cloudflare.com/sign-up）
-- 一个已托管在 Cloudflare 的域名（没有域名也可用临时 URL，见下方"快速模式"）
-
-### 快速模式（无需域名，临时 URL）
-
-```bash
-# macOS
-brew install cloudflared
-
-# 一条命令启动临时隧道（会随机生成 trycloudflare.com 临时地址）
 cloudflared tunnel --url http://localhost:5001
 ```
 
@@ -152,64 +61,171 @@ cloudflared tunnel --url http://localhost:5001
 +--------------------------------------------------------------+
 ```
 
-打开该地址即可从任何地方访问本机的 Flask 管理界面。
-**注意**：快速模式的地址每次重启会变，仅供临时使用。
+打开该地址即可从任何地方访问你的 Flask 管理界面。
 
-### 正式模式（绑定自己的域名，地址固定）
+**正式模式（绑定自己的域名，地址固定）**：
+
+1. 注册 Cloudflare 账号（免费）：https://dash.cloudflare.com/sign-up
+2. 将你的域名托管到 Cloudflare（免费 DNS）
+3. 执行以下命令：
 
 ```bash
-# 1. 登录
+# 登录
 cloudflared tunnel login
 
-# 2. 创建命名隧道
+# 创建命名隧道
 cloudflared tunnel create boss-bot
 
-# 3. 配置隧道（创建 ~/.cloudflared/config.yml）
+# 配置隧道
 cat > ~/.cloudflared/config.yml <<EOF
 tunnel: <隧道UUID>
-credentials-file: /Users/<你>/.cloudflared/<隧道UUID>.json
+credentials-file: ~/.cloudflared/<隧道UUID>.json
 ingress:
   - hostname: bot.yourdomain.com
     service: http://localhost:5001
   - service: http_status:404
 EOF
 
-# 4. 添加 DNS 记录
+# 添加 DNS 记录
 cloudflared tunnel route dns boss-bot bot.yourdomain.com
 
-# 5. 启动
+# 启动
 cloudflared tunnel run boss-bot
 
-# 6. 安装为系统服务（开机自启）
+# 安装为系统服务（开机自启）
 sudo cloudflared service install
 ```
 
 ### 安全提醒
 
 公网暴露 Web 管理界面有风险，建议：
-1. Cloudflare Dashboard 开启 **Zero Trust Access**（给访问加一层邮箱验证码）
-2. 或者修改 `flask-version/app.py` 中 `main()` 的 `host="127.0.0.1"` 保持仅本地，
-   再通过 SSH 隧道访问：`ssh -L 5001:localhost:5001 ubuntu@<服务器IP>`
+1. Cloudflare Dashboard 开启 **Zero Trust Access**（给访问加一层邮箱验证码，免费）
+2. 或保持 `host="127.0.0.1"` 仅本地访问，通过 SSH 隧道远程访问
 
 ---
 
-## 方案三：Render.com / Hugging Face Spaces（仅 Web 界面）
+## 方案二：Hugging Face Spaces（免费 Docker 容器）
 
-免费 Tier 提供 750 小时/月（Render），但 15 分钟无请求会休眠，且**不支持持久化
-磁盘和真实 Chrome 自动化**（服务器无显示器浏览器可用 headless Chromium，但
-BOSS 直聘对数据中心 IP 风控严格，容易触发验证码）。
+**原理**：Hugging Face 提供免费的 Docker 容器运行环境，可以 24/7 运行你的机器人。
 
-- 本项目根目录已含 `render.yaml`，可一键部署 Web 界面
-- 适合展示/管理，不适合跑真正的自动回复
-- **结论：仅当没有 VPS 时的临时方案**
+**优点**：
+- 完全免费，不需要信用卡
+- 24/7 运行，不依赖你的电脑
+- 自带公网 URL
+
+**缺点**：
+- 免费版资源有限（16GB RAM、2 vCPU）
+- 需要适配无头 Chrome 环境
+- BOSS 直聘可能对数据中心 IP 风控更严格
+- 不支持持久化磁盘（重启后数据丢失，需用外部存储）
+
+### 步骤 1：注册 Hugging Face 账号
+
+访问 https://huggingface.co/join 注册（免费，不需要信用卡）
+
+### 步骤 2：创建 Space
+
+1. 访问 https://huggingface.co/new-space
+2. **Owner**: 你的用户名
+3. **Space name**: `boss-bot`
+4. **SDK**: 选择 **Docker**
+5. **Visibility**: Private（推荐，不公开你的代码）
+6. 点击 **Create Space**
+
+### 步骤 3：上传项目文件
+
+将项目文件上传到 Space 的文件管理器，或用 Git 推送：
+
+```bash
+# 克隆你的 Space（注意用你的用户名替换）
+git clone https://huggingface.co/spaces/你的用户名/boss-bot
+cd boss-bot
+
+# 复制项目文件（排除 venv、.git 等）
+cp -r /path/to/sturgeon/* .
+cp -r /path/to/sturgeon/.env.example .
+
+# 推送
+git add .
+git commit -m "Deploy BOSS bot"
+git push
+```
+
+### 步骤 4：配置环境变量
+
+在 Space 的 **Settings → Repository secrets** 中添加：
+
+| Key | Value |
+|-----|-------|
+| `AI_API_KEY_1` | 你的 AI API Key |
+| `AI_BASE_URL` | `https://apihub.agnes-ai.com/v1` |
+| `BOSS_BOT_HEADLESS` | `1` |
+
+### 步骤 5：修改 Dockerfile 适配 Hugging Face
+
+Hugging Face Spaces 要求：
+- 应用监听 `0.0.0.0:7860`（不是 5001）
+- Dockerfile 中不能有 `USER` 指令（以 root 运行）
+
+修改 `flask-version/app.py` 最后的启动代码：
+```python
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=7860)
+```
+
+修改 `Dockerfile`：
+```dockerfile
+FROM python:3.12-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    chromium chromium-driver fonts-noto-cjk fonts-wqy-zenhei \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/chromium /usr/bin/google-chrome
+
+ENV PYTHONUNBUFFERED=1 CHROME_PATH=/usr/bin/chromium TZ=Asia/Shanghai
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+RUN mkdir -p messages logs accounts cookie_backups
+
+EXPOSE 7860
+CMD ["python", "flask-version/app.py"]
+```
+
+### 注意事项
+
+- **Cookie 持久化**：Hugging Face Spaces 重启后磁盘数据会丢失。需要将 Cookie 保存到外部存储（如 GitHub Gist、Hugging Face Dataset）或每次重启后重新上传 Cookie。
+- **安全验证**：数据中心 IP 更容易触发 BOSS 直聘的安全验证。建议先在本机有头模式下完成验证，获取 Cookie 后上传到 Space。
+- **资源限制**：免费版 16GB RAM 足够运行 Chrome + Flask，但如果有多个账号同时运行可能会紧张。
 
 ---
 
 ## 部署后检查清单
 
 - [ ] `curl http://localhost:5001/api/status` 返回正常 JSON
-- [ ] Web 界面能看到 Cookie 状态（`/api/cookie/status`）
+- [ ] Web 界面能看到 Cookie 状态
 - [ ] 上传/保存 Cookie 后 `accounts/<账号>/cookies.json` 存在且非空
-- [ ] 启动机器人后 `journalctl -u boss-bot -f`（或本地 logs/）无报错
-- [ ] 自动进化状态 `curl http://localhost:5001/api/evolve/status` 返回 `running: true`
-- [ ] 重启服务器后服务自动拉起（`systemctl is-enabled boss-bot`）
+- [ ] 启动机器人后日志无报错
+- [ ] 自进化状态 `curl http://localhost:5001/api/evolve/status` 返回 `running: true`
+- [ ] Cloudflare Tunnel 公网 URL 可正常访问
+
+---
+
+## 方案对比总结
+
+| 维度 | 本机 + Cloudflare Tunnel | Hugging Face Spaces |
+|------|--------------------------|---------------------|
+| **费用** | 免费 | 免费 |
+| **信用卡** | 不需要 | 不需要 |
+| **24/7 运行** | ❌ 依赖电脑开机 | ✅ |
+| **Chrome 自动化** | ✅ 本机 Chrome | ✅ 容器内 Chromium |
+| **Cookie 持久化** | ✅ 本机磁盘 | ❌ 重启丢失 |
+| **BOSS 风控** | ✅ 家庭 IP | ⚠️ 数据中心 IP |
+| **安全验证** | ✅ 有头模式可手动过 | ❌ 无头模式无法手动 |
+| **配置难度** | ⭐ 极简 | ⭐⭐ 中等 |
+
+**推荐**：先用 **本机 + Cloudflare Tunnel** 方案快速上线，如果需要 24/7 运行再考虑 Hugging Face Spaces。

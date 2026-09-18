@@ -10,6 +10,7 @@ import os
 import sys
 import time
 import json
+import random
 import logging
 import platform
 import threading
@@ -40,13 +41,54 @@ class BossChatHandler:
         self._login_event = threading.Event()
         self._msg_store = MessageStore()
 
+    def _is_security_verify_page(self) -> bool:
+        """检测是否被重定向到安全验证页面"""
+        try:
+            url = self.page.url or ""
+            return "passport" in url and "verify" in url
+        except Exception:
+            return False
+
+    def _wait_for_security_verify(self, timeout: int = 120) -> bool:
+        """有头模式下等待用户手动完成安全验证
+
+        检测到安全验证页面时，提示用户在浏览器窗口中手动完成验证。
+        轮询检测页面 URL 是否已离开验证页面，最多等待 timeout 秒。
+        """
+        if self._headless:
+            logger.warning("无头模式下遇到安全验证，无法自动完成，需要用户在有头模式下手动过验证")
+            return False
+
+        logger.info("=" * 50)
+        logger.info("检测到 BOSS 直聘安全验证页面！")
+        logger.info("请在浏览器窗口中手动完成安全验证（滑块/验证码等）")
+        logger.info(f"等待用户完成验证，超时时间 {timeout} 秒...")
+        logger.info("=" * 50)
+
+        start = time.time()
+        while time.time() - start < timeout:
+            time.sleep(2)
+            try:
+                url = self.page.url or ""
+                if "passport" not in url or "verify" not in url:
+                    logger.info("安全验证已完成！")
+                    time.sleep(2)
+                    self._save_cookies()
+                    logger.info("验证后的 Cookie 已保存")
+                    return True
+            except Exception:
+                pass
+
+        logger.warning(f"等待安全验证超时（{timeout}秒），用户未完成验证")
+        return False
+
     def login(self, timeout: int = 300) -> bool:
         """
         检查登录状态。
         返回 True = 已登录，False = 需要手动登录。
+        有头模式下遇到安全验证会等待用户手动完成。
         """
         if TEST_MODE:
-            # 测试模式：直接打开本地 mock 页面，视为已登录
             url = TEST_PAGE if TEST_PAGE.startswith("file:") else f"file://{TEST_PAGE}"
             self.page.get(url)
             time.sleep(1)
@@ -54,26 +96,34 @@ class BossChatHandler:
             logger.info("[TEST_MODE] 已打开 mock 页面，视为已登录")
             return True
 
-        # 先访问主站，确保 Cookie 作用域正确
         self.page.get("https://www.zhipin.com")
         time.sleep(2)
-
-        # 处理首次访问弹窗
         self._dismiss_login_popup()
 
-        # 尝试加载已保存的 cookies
         if self._load_cookies():
             self.page.get(CHAT_URL)
             time.sleep(3)
+
+            if self._is_security_verify_page():
+                if self._wait_for_security_verify():
+                    self.page.get(CHAT_URL)
+                    time.sleep(3)
+                    if not self._is_login_page():
+                        logger.info("验证通过后 Cookie 自动登录成功")
+                        self._logged_in = True
+                        return True
+
             if not self._is_login_page():
                 logger.info("通过 Cookie 自动登录成功")
                 self._logged_in = True
                 return True
 
-        # 需要手动登录
-        logger.info("需要登录，正在跳转到登录页面...")
-        self.page.get("https://www.zhipin.com/web/user/?ka=header-login")
-        logger.info("请在浏览器中手动登录 BOSS 直聘，登录完成后点击网页上的「我已登录」按钮")
+        if not self._headless:
+            logger.info("需要登录，正在跳转到登录页面...")
+            self.page.get("https://www.zhipin.com/web/user/?ka=header-login")
+            logger.info("请在浏览器中手动登录 BOSS 直聘，登录完成后点击网页上的「我已登录」按钮")
+        else:
+            logger.warning("无头模式下 Cookie 登录失败，请在有头模式下重新登录获取 Cookie")
         self._logged_in = False
         return False
 
@@ -92,7 +142,7 @@ class BossChatHandler:
             self.page.get("https://www.zhipin.com")
             time.sleep(2)
             self._dismiss_login_popup()
-            time.sleep(0.5)
+            time.sleep(1)
             # 保存 Cookie
             self._save_cookies()
             self._logged_in = True
@@ -111,7 +161,7 @@ class BossChatHandler:
             if close_btn:
                 close_btn.click()
                 logger.info("已关闭首页弹窗")
-                time.sleep(0.5)
+                time.sleep(1)
         except Exception:
             pass
 
@@ -200,7 +250,7 @@ class BossChatHandler:
             self.page.get("https://www.zhipin.com")
             time.sleep(1)
             self._dismiss_login_popup()
-            time.sleep(0.5)
+            time.sleep(1)
             self._save_cookies()
             return True
         except Exception as e:
@@ -231,7 +281,7 @@ class BossChatHandler:
         - 最后一条消息: .last-msg-text（在 .gray.last-msg 内）
         """
         self.go_to_chat()
-        time.sleep(1)
+        time.sleep(2)
 
         unread_chats = []
         try:
@@ -307,7 +357,7 @@ class BossChatHandler:
                 )
                 if ready == 'ready':
                     break
-                time.sleep(0.5)
+                time.sleep(1)
 
             # 校验会话切换是否正确
             actual_name = self.get_boss_name()
@@ -421,7 +471,7 @@ class BossChatHandler:
                     time.sleep(1)
                     continue
 
-                time.sleep(0.5)
+                time.sleep(random.uniform(1.5, 3))
 
                 # 点击发送按钮
                 send_result = self.page.run_js('''(
@@ -436,7 +486,7 @@ class BossChatHandler:
 
                 if send_result == 'sent':
                     logger.info(f"已发送文字: {text[:30]}...")
-                    time.sleep(0.5)
+                    time.sleep(1)
                     return True
                 else:
                     logger.warning(f"发送按钮不可用（尝试 {attempt}/{retries}）: {send_result}")
@@ -503,7 +553,7 @@ class BossChatHandler:
                     )()''', as_expr=True)
                     if state in ("confirm", "no_resume"):
                         break
-                    time.sleep(0.5)
+                    time.sleep(1)
 
                 if state == "no_resume":
                     logger.error("没有附件简历，BOSS 弹出上传引导。请在网页端上传简历后重试")

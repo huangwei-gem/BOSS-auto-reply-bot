@@ -35,6 +35,16 @@ if "%PYTHON_CMD%"=="" (
 )
 
 if "%PYTHON_CMD%"=="" (
+    where py >nul 2>&1
+    if %errorlevel% equ 0 (
+        for /f "tokens=2" %%v in ('py --version 2^>^&1') do (
+            set "PYTHON_CMD=py"
+            set "PYTHON_VERSION=%%v"
+        )
+    )
+)
+
+if "%PYTHON_CMD%"=="" (
     echo   [ERROR] Python not found!
     echo.
     echo   Please install Python 3.8+ from:
@@ -64,7 +74,6 @@ if not exist "%VENV_DIR%" (
     echo   [OK] Virtual environment exists
 )
 
-REM Activate venv
 call "%VENV_DIR%\Scripts\activate.bat"
 echo   [OK] Virtual environment activated
 
@@ -93,7 +102,7 @@ set "CHROME_FOUND="
 REM Check portable Chrome
 if exist "%~dp0cloakbrowser-windows-x64\chrome.exe" (
     for %%A in ("%~dp0cloakbrowser-windows-x64\chrome.exe") do (
-        if %%~zA gtr 1000 set "CHROME_FOUND=1"
+        if %%~zA gtr 1000000 set "CHROME_FOUND=1"
     )
 )
 
@@ -103,6 +112,9 @@ if not defined CHROME_FOUND (
 )
 if not defined CHROME_FOUND (
     if exist "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" set "CHROME_FOUND=1"
+)
+if not defined CHROME_FOUND (
+    if exist "%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe" set "CHROME_FOUND=1"
 )
 
 if defined CHROME_FOUND (
@@ -122,20 +134,30 @@ echo     2) Headless (no window, save resources)
 echo ===================================================
 set /p MODE_CHOICE=Enter [1/2] (default 1):
 
-set "HEADLESS_FLAG="
 set "MODE_LABEL=With Browser"
 
 if "%MODE_CHOICE%"=="2" (
-    set "HEADLESS_FLAG=--headless"
+    set "BOSS_BOT_HEADLESS=1"
     set "MODE_LABEL=Headless"
 )
 
 echo   Selected: %MODE_LABEL%
 echo.
 
-REM ========== Start Bot ==========
+REM ========== Select Launch Type ==========
 echo ===================================================
-echo   Starting Bot (%MODE_LABEL%)... Press Ctrl+C to stop
+echo   请选择启动方式：
+echo     1) Flask Web 管理界面（推荐，含自进化、多账号管理）
+echo     2) 命令行模式（直接运行 main.py）
+echo ===================================================
+set /p LAUNCH_CHOICE=请输入选项 [1/2]（默认 1）:
+
+echo.
+echo ===================================================
+echo   提示：
+echo     - 首次使用需手动登录 BOSS 直聘
+echo     - 有头模式下如遇到安全验证，请在浏览器窗口中手动完成
+echo     - 登录后 Cookie 自动保存，下次启动自动登录
 echo ===================================================
 echo.
 
@@ -147,7 +169,17 @@ if exist "%~dp0zhipin_cookies.json" (
 )
 echo.
 
-python -m boss_bot %HEADLESS_FLAG%
+if "%LAUNCH_CHOICE%"=="2" (
+    echo   启动命令行模式 (%MODE_LABEL%)... 按 Ctrl+C 停止
+    echo ===================================================
+    python -m boss_bot --headless
+) else (
+    echo   启动 Flask Web 管理界面 (%MODE_LABEL%)...
+    echo   访问地址: http://127.0.0.1:5001
+    echo   按 Ctrl+C 停止
+    echo ===================================================
+    python flask-version\app.py
+)
 
 REM ========== Exit ==========
 echo.

@@ -1,7 +1,6 @@
 """跨平台浏览器启动器
 
-macOS: 手动启动 Chrome（临时配置文件）+ Chromium 地址连接
-Windows: 使用 Chromium + ChromiumOptions 直接启动
+macOS / Windows: 使用 Chromium + ChromiumOptions 直接启动
 """
 
 import os
@@ -15,8 +14,6 @@ import socket
 import tempfile
 import logging
 from pathlib import Path
-from urllib.request import urlopen
-from urllib.error import URLError
 
 logger = logging.getLogger("browser_launcher")
 
@@ -153,27 +150,40 @@ def set_preferred_browser(name: str):
 
 
 def _get_portable_chrome_path() -> str:
-    """获取 Windows 便携版 Chrome 路径
+    """获取便携版 Chrome/Chromium 路径（Windows + macOS）
 
     查找位置（按优先级）：
-    1. 当前工作目录下的 cloakbrowser-windows-x64/
-    2. boss_bot/ 同级目录（项目根目录）下的 cloakbrowser-windows-x64/
+    1. 当前工作目录下的 cloakbrowser-{平台}/
+    2. boss_bot/ 同级目录（项目根目录）下的 cloakbrowser-{平台}/
+
+    - macOS: cloakbrowser-darwin-arm64/Chromium.app/Contents/MacOS/Chromium
+    - Windows: cloakbrowser-windows-x64/chrome.exe
     """
-    if not _IS_WINDOWS:
+    if _IS_MACOS:
+        portable_name = "cloakbrowser-darwin-arm64"
+        portable_bin = os.path.join(
+            "Chromium.app", "Contents", "MacOS", "Chromium")
+    elif _IS_WINDOWS:
+        portable_name = "cloakbrowser-windows-x64"
+        portable_bin = "chrome.exe"
+    else:
         return ""
 
     # 可能的路径列表
     possible_paths = [
-        os.path.join(os.getcwd(), "cloakbrowser-windows-x64", "chrome.exe"),
-        os.path.join(os.path.dirname(__file__), "..", "cloakbrowser-windows-x64", "chrome.exe"),
+        os.path.join(os.getcwd(), portable_name, portable_bin),
+        os.path.join(os.path.dirname(__file__), "..", portable_name, portable_bin),
     ]
 
     for portable_path in possible_paths:
         portable_path = os.path.normpath(portable_path)
         if os.path.isfile(portable_path):
             size = os.path.getsize(portable_path)
-            # 确保是真正的 Chrome（>1MB），不是空文件
-            if size > 1_000_000:
+            # 确保是真正的浏览器二进制，不是空文件
+            # Windows 的 chrome.exe 是自包含大文件（>1MB）；
+            # macOS 的 Chromium 主二进制很小（~70KB，代码在 Framework 内）
+            min_size = 50_000 if _IS_MACOS else 1_000_000
+            if size > min_size:
                 return portable_path
     return ""
 
@@ -183,7 +193,7 @@ def _find_chrome_path() -> str:
 
     优先级：
     1. 用户手动选择的浏览器
-    2. Windows 便携版 Chrome（cloakbrowser-windows-x64/）
+    2. 便携版浏览器（cloakbrowser-*，macOS / Windows 默认使用）
     3. 系统默认浏览器
     4. 按优先级兜底（chrome → edge → chromium）
     """
@@ -198,9 +208,9 @@ def _find_chrome_path() -> str:
         elif _preferred_browser in available:
             return available[_preferred_browser]
 
-    # 2. Windows 便携版 Chrome（默认使用）
+    # 2. 便携版浏览器（macOS / Windows 默认使用）
     if portable:
-        logger.info(f"使用便携版 Chrome: {portable}")
+        logger.info(f"使用便携版浏览器: {portable}")
         return portable
 
     # 3. 系统默认浏览器
@@ -216,40 +226,6 @@ def _find_chrome_path() -> str:
 
     return ""
 
-
-def _is_port_open(host: str, port: int, timeout: float = 1.0) -> bool:
-    """检查端口是否开放"""
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(timeout)
-            return s.connect_ex((host, port)) == 0
-    except Exception:
-        return False
-
-
-def _wait_for_port(host: str, port: int, timeout: float = 15.0) -> bool:
-    """等待端口开放"""
-    start = time.time()
-    while time.time() - start < timeout:
-        if _is_port_open(host, port):
-            return True
-        time.sleep(0.5)
-    return False
-
-
-def _get_ws_url(host: str, port: int, retries: int = 5) -> str:
-    """从 /json/version 获取 WebSocket URL"""
-    for attempt in range(retries):
-        try:
-            resp = urlopen(f'http://{host}:{port}/json/version', timeout=3)
-            data = json.loads(resp.read())
-            ws_url = data.get('webSocketDebuggerUrl', '')
-            if ws_url:
-                return ws_url
-        except (URLError, OSError, json.JSONDecodeError) as e:
-            logger.debug(f"获取 ws_url 第{attempt+1}次失败: {e}")
-            time.sleep(1)
-    return ""
 
 
 def _find_free_port() -> int:
@@ -410,59 +386,38 @@ def launch_browser(port: int = 0, headless: bool = False) -> BrowserInstance:
 
 
 def _launch_macos(chrome_path: str, port: int, headless: bool = False) -> BrowserInstance:
-    """macOS: 用临时配置文件启动 Chrome + WebSocket 连接"""
+    """macOS: 使用 Chromium + ChromiumOptions 直接启动"""
 
-    # 使用临时用户数据目录（不影响用户主 Chrome）
+    from DrissionPage import Chromium, ChromiumOptions
+
     user_data_dir = os.path.join(tempfile.gettempdir(), f"boss_bot_chrome_{port}")
-    os.makedirs(user_data_dir, exist_ok=True)
 
-    args = [
-        f'--remote-debugging-port={port}',
-        '--no-sandbox',
-        '--disable-gpu',
-        '--disable-dev-shm-usage',
-        '--disable-extensions',
-        '--no-first-run',
-        '--no-default-browser-check',
-        '--disable-features=DnsOverHttps',
-        f'--user-data-dir={user_data_dir}',
-        '--remote-allow-origins=*',
-        '--window-size=1280,800',
-    ]
+    co = ChromiumOptions()
+    co.set_browser_path(chrome_path)
+    co.set_local_port(port)
+    co.set_user_data_path(user_data_dir)
+    co.set_argument('--no-sandbox')
+    co.set_argument('--disable-gpu')
+    co.set_argument('--disable-dev-shm-usage')
+    co.set_argument('--disable-extensions')
+    co.set_argument('--no-first-run')
+    co.set_argument('--no-default-browser-check')
+    co.set_argument('--disable-features=DnsOverHttps')
+    co.set_argument('--disable-blink-features=AutomationControlled')
+    co.set_argument('--remote-allow-origins=*')
+    co.set_argument('--window-size=1280,800')
 
     if headless:
-        args.append('--headless=new')
+        co.set_argument('--headless=new')
 
     mode_label = "无头模式" if headless else "有头模式"
     logger.info(f"macOS: 启动 Chrome ({mode_label}, port={port}, profile={user_data_dir})")
 
-    proc = subprocess.Popen(
-        [chrome_path] + args,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    browser = Chromium(co)
+    tab = browser.latest_tab
+    logger.info(f"macOS: Chrome 启动成功 (port={port})")
 
-    if not _wait_for_port('127.0.0.1', port, timeout=15):
-        proc.kill()
-        raise RuntimeError(f"Chrome 启动失败（端口 {port} 未响应）")
-
-    ws_url = _get_ws_url('127.0.0.1', port)
-    if not ws_url:
-        proc.kill()
-        raise RuntimeError("无法获取 Chrome WebSocket URL")
-
-    from DrissionPage import Chromium
-
-    try:
-        chromium = Chromium(f'127.0.0.1:{port}')
-    except Exception as e:
-        proc.kill()
-        raise RuntimeError(f"连接 Chrome 失败: {e}")
-
-    tab = chromium.latest_tab
-    logger.info(f"macOS: Chrome 连接成功 (PID={proc.pid})")
-
-    return BrowserInstance(chromium=chromium, tab=tab, process=proc)
+    return BrowserInstance(chromium=browser, tab=tab)
 
 
 def _launch_windows(chrome_path: str, headless: bool = False) -> BrowserInstance:

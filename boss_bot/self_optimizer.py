@@ -295,18 +295,17 @@ class SelfOptimizer:
         except Exception:
             return []
 
-    def _get_api_key(self):
-        """获取可用的 API Key（从模型池中取第一个可用的）"""
+    def _get_api_candidates(self) -> list:
+        """获取所有可用 API 候选 [(key, url, model), ...]（来自模型池，失败时轮换）"""
         import boss_bot.config as config
-        if config.AI_PROVIDERS:
-            provider = config.AI_PROVIDERS[0]
-            return (provider["key"], provider["url"], provider["model"])
-        # 兼容旧配置
-        if config.AI_API_KEYS and config.AI_API_KEYS[0]:
-            return (config.AI_API_KEYS[0], config.AI_BASE_URL, config.AI_MODELS[0])
+        candidates = [
+            (p["key"], p["url"], p["model"])
+            for p in config.AI_PROVIDERS
+            if p.get("key")
+        ]
         if _FALLBACK_KEY:
-            return (_FALLBACK_KEY, _FALLBACK_URL, _FALLBACK_MODEL)
-        return None
+            candidates.append((_FALLBACK_KEY, _FALLBACK_URL, _FALLBACK_MODEL))
+        return candidates
 
     def _ai_analyze(self, analysis: dict) -> list:
         """用 AI 分析人工回复 vs 机器回复的差异，生成精准优化建议（自进化核心）
@@ -388,37 +387,46 @@ class SelfOptimizer:
 
         user_prompt += "\n请分析数据并给出具体的优化建议。"
 
-        try:
-            api_key = self._get_api_key()
-            if not api_key:
-                logger.warning("[AI分析] 未配置任何 API Key，跳过 AI 分析")
-                return []
-
-            client = OpenAI(api_key=api_key[0], base_url=api_key[1])
-            response = client.chat.completions.create(
-                model=api_key[2],
-                max_tokens=1500,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-            )
-            content = response.choices[0].message.content.strip()
-
-            import re
-            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
-            if json_match:
-                content = json_match.group(1)
-            elif content.startswith("```"):
-                content = content.strip("`").strip()
-                if content.startswith("json"):
-                    content = content[4:].strip()
-
-            result = json.loads(content)
-            return self._sanitize_suggestions(result.get("suggestions", []))
-        except Exception as e:
-            logger.error(f"AI 分析失败: {e}")
+        from . import ai_client
+        candidates = self._get_api_candidates()
+        if not candidates:
+            logger.warning("[AI分析] 未配置任何 API Key，跳过 AI 分析")
             return []
+
+        # 轮换候选 API，单个失败快速切换下一个
+        last_err = None
+        for key, url, model in candidates:
+            try:
+                client = ai_client.make_client(key, url, timeout=25)
+                response = client.chat.completions.create(
+                    model=model,
+                    max_tokens=1500,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                )
+                content = (response.choices[0].message.content or "").strip()
+
+                import re
+                if not content:
+                    raise ValueError(f"模型未返回正文（finish_reason={response.choices[0].finish_reason}）")
+                json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
+                if json_match:
+                    content = json_match.group(1)
+                elif not content.startswith("{"):
+                    # 兜底：提取首个 { 到最后一个 } 之间的内容
+                    brace = re.search(r'\{.*\}', content, re.DOTALL)
+                    if brace:
+                        content = brace.group(0)
+
+                result = json.loads(content)
+                return self._sanitize_suggestions(result.get("suggestions", []))
+            except Exception as e:
+                last_err = e
+                logger.warning(f"[AI分析] {model} 失败: {type(e).__name__}, 切换下一个候选")
+        logger.error(f"AI 分析失败（所有候选 API）: {last_err}")
+        return []
 
     @staticmethod
     def _sanitize_suggestions(suggestions: list) -> list:

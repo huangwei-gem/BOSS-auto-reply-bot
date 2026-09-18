@@ -26,6 +26,7 @@ TEST_PAGE = str(BASE_DIR / "mock_zhipin.html")
 os.environ["BOSS_BOT_TEST_MODE"] = "1"
 os.environ["BOSS_BOT_TEST_PAGE"] = f"file://{TEST_PAGE}"
 os.environ["ENABLE_AI"] = "false"  # 测试不依赖外部 AI
+os.environ["BOSS_BOT_NO_OVERRIDES"] = "1"  # 隔离自进化产物（config_overrides.json），使用纯净默认规则
 
 # 临时数据文件，避免污染真实状态
 TMP_DIR = Path(tempfile.mkdtemp(prefix="boss_bot_test_"))

@@ -84,21 +84,43 @@ class TestIntent(unittest.TestCase):
 class TestRuleEngine(unittest.TestCase):
     """关键词规则直通"""
 
+    def setUp(self):
+        from boss_bot.rules import RuleEngine
+        self._default_rules = {
+            "简历": "send_resume",
+            "发简历": "send_resume",
+            "看看简历": "send_resume",
+            "面试": "面试时间回复",
+            "约面试": "面试时间回复",
+            "时间安排": "面试时间回复",
+            "薪资": "薪资回复",
+            "待遇": "薪资回复",
+            "工资": "薪资回复",
+            "多少钱": "薪资回复",
+            "您好": "打招呼",
+            "你好": "打招呼",
+            "在吗": "打招呼",
+            "在不在": "打招呼",
+            "工作内容": "岗位内容回复",
+            "岗位职责": "岗位内容回复",
+            "做什么": "岗位内容回复",
+        }
+
     def test_resume_action(self):
         from boss_bot.rules import RuleEngine
-        engine = RuleEngine()
+        engine = RuleEngine(self._default_rules)
         self.assertEqual(engine.match("方便发一下简历吗？"), ("resume", None))
 
     def test_text_reply(self):
         from boss_bot.rules import RuleEngine
-        engine = RuleEngine()
+        engine = RuleEngine(self._default_rules)
         action, content = engine.match("你们的薪资待遇怎么样")
         self.assertEqual(action, "text")
         self.assertIn("薪资", content)
 
     def test_no_match(self):
         from boss_bot.rules import RuleEngine
-        engine = RuleEngine()
+        engine = RuleEngine(self._default_rules)
         self.assertIsNone(engine.match("好的我考虑一下"))
 
     def test_case_insensitive(self):
@@ -109,7 +131,7 @@ class TestRuleEngine(unittest.TestCase):
     def test_question_context_no_false_match(self):
         """疑问/否定上下文不应触发动作（"是否投递过简历"≠要简历）"""
         from boss_bot.rules import RuleEngine
-        engine = RuleEngine()
+        engine = RuleEngine(self._default_rules)
         self.assertIsNone(engine.match("同学好，请问是否公司官网投递过简历？"))
         self.assertIsNone(engine.match("不用发简历，等通知就好"))
         self.assertIsNone(engine.match("无需再发简历了"))
@@ -378,8 +400,34 @@ class TestReplyEngine(unittest.TestCase):
     """回复引擎决策"""
 
     def setUp(self):
+        import boss_bot.config as config
         from boss_bot.reply_engine import ReplyEngine
+        # 保存被 overrides 覆盖的规则，测试用默认规则
+        self._saved_rules = config.REPLY_RULES
+        config.REPLY_RULES = {
+            "简历": "send_resume",
+            "发简历": "send_resume",
+            "看看简历": "send_resume",
+            "面试": config.INTERVIEW_TIME_REPLY,
+            "约面试": config.INTERVIEW_TIME_REPLY,
+            "时间安排": config.INTERVIEW_TIME_REPLY,
+            "薪资": config.SALARY_REPLY,
+            "待遇": config.SALARY_REPLY,
+            "工资": config.SALARY_REPLY,
+            "多少钱": config.SALARY_REPLY,
+            "您好": config.GREETING_REPLY,
+            "你好": config.GREETING_REPLY,
+            "在吗": config.GREETING_REPLY,
+            "在不在": config.GREETING_REPLY,
+            "工作内容": config.JOB_CONTENT_REPLY,
+            "岗位职责": config.JOB_CONTENT_REPLY,
+            "做什么": config.JOB_CONTENT_REPLY,
+        }
         self.engine = ReplyEngine()
+
+    def tearDown(self):
+        import boss_bot.config as config
+        config.REPLY_RULES = self._saved_rules
 
     def test_rule_passthrough(self):
         action, content, meta = self.engine.get_reply("方便发一下简历吗？")
@@ -491,7 +539,7 @@ class TestProfileTemplate(unittest.TestCase):
         self.assertIn("算法", prompt)
         self.assertIn("PyTorch", prompt)
         self.assertIn("30K", prompt)
-        self.assertIn("对话历史", prompt)
+        self.assertIn("求职者", prompt)
 
     def test_user_prompt_history(self):
         from boss_bot.prompts import build_user_prompt

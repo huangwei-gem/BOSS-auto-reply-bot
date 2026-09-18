@@ -31,12 +31,12 @@ HEADLESS = os.environ.get("BOSS_BOT_HEADLESS", "") == "1"
 
 # ===================== 基础配置 =====================
 
-# 检查未读消息的间隔（秒）
-CHECK_INTERVAL = 8
+# 检查未读消息的间隔（秒），实际等待会加上随机抖动避免固定节奏被检测
+CHECK_INTERVAL = 20
 
 # 每次操作后的随机延迟范围（秒），模拟人类操作节奏
-MIN_DELAY = 2
-MAX_DELAY = 5
+MIN_DELAY = 3
+MAX_DELAY = 8
 
 # 每小时最大回复数，防止被平台检测
 MAX_REPLIES_PER_HOUR = 30
@@ -112,6 +112,9 @@ USER_PROFILE = load_user_profile()
 OVERRIDES_FILE = BASE_DIR / "config_overrides.json"
 
 def _load_overrides() -> dict:
+    # 测试隔离：BOSS_BOT_NO_OVERRIDES=1 时跳过自进化产物，使用纯净默认配置
+    if os.environ.get("BOSS_BOT_NO_OVERRIDES", "") == "1":
+        return {}
     try:
         if OVERRIDES_FILE.exists():
             with open(OVERRIDES_FILE, "r", encoding="utf-8") as f:
@@ -169,6 +172,9 @@ def _parse_ai_providers(env_prefix: str = "AI_PROVIDERS") -> list:
                 providers.append({"key": key, "model": model, "url": url})
     return providers
 
+# AI 请求代理（可选）：部分网络环境直连 API 的 TLS 握手会间歇超时，需走代理
+# 示例：AI_HTTP_PROXY=http://127.0.0.1:7897，留空则直连
+AI_HTTP_PROXY = os.environ.get("AI_HTTP_PROXY", "")
 
 AI_PROVIDERS = _parse_ai_providers("AI_PROVIDERS")
 

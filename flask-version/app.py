@@ -80,14 +80,17 @@ def create_app():
     app.config["LOG_DIR"] = project_root / "logs"
 
     # 共享状态（蓝图通过 app.config 访问）
+    import os as _os
     app.config["BOT_STATE"] = {
         "running": False,
         "logged_in": False,
         "needs_login": False,
+        "headless": _os.environ.get("BOSS_BOT_HEADLESS", "") == "1",
         "total_replies": 0,
         "total_resumes": 0,
         "last_check": None,
         "current_chat": None,
+        "last_unread_chats": [],
     }
     app.config["BOT_THREAD"] = None
     app.config["_BOT_HANDLER"] = None

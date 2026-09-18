@@ -39,3 +39,9 @@ messages_test/
 
 # 便携浏览器（大文件，不提交）
 cloakbrowser-windows-x64/
+cloakbrowser-darwin-arm64/
+cloakbrowser-*.tar.gz
+
+# 系统与本地工具
+.DS_Store
+.skills/

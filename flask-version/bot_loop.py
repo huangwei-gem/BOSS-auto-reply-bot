@@ -6,6 +6,7 @@ Flask 版机器人主循环
 """
 import logging
 import time
+import random
 from datetime import datetime
 
 from boss_bot.config import CHECK_INTERVAL, CONTEXT_MESSAGE_COUNT, PAUSE_ON_IMPORTANT, RESUME_SEND_ONCE
@@ -88,9 +89,9 @@ def run_bot_loop(app):
                         info = state.pause_info()
                         logger.info(f"人工接管模式中（{info.get('reason', '')}），仅监控不回复...")
 
-                    # 获取未读聊天
-                    handler.go_to_chat()
+                    # 获取未读聊天（get_unread_chats 内部已包含 go_to_chat 逻辑）
                     unread_chats = handler.get_unread_chats()
+                    bot_state["last_unread_chats"] = unread_chats
                     bot_state["last_check"] = datetime.now().strftime("%H:%M:%S")
 
                     if unread_chats:
@@ -121,7 +122,8 @@ def run_bot_loop(app):
                 except Exception as e:
                     logger.error(f"运行时错误: {e}")
 
-                time.sleep(CHECK_INTERVAL)
+                # 随机抖动避免固定节奏被检测
+                time.sleep(CHECK_INTERVAL + random.uniform(0, 10))
 
         except Exception as e:
             logger.error(f"机器人异常: {e}")

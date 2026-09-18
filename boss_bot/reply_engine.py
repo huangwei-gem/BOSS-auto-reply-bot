@@ -239,9 +239,9 @@ class ReplyEngine:
             provider_name = f"{model}#{i+1}"
 
             try:
-                from openai import OpenAI
+                from . import ai_client
 
-                client = OpenAI(api_key=api_key, base_url=base_url)
+                client = ai_client.make_client(api_key, base_url)
                 reply = self._call_with_rate_limit_retry(
                     client, model, message, boss_name, job_name, history, provider_name)
                 if reply:

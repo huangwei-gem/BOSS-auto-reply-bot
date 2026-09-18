@@ -8,7 +8,7 @@ import logging
 from flask import Blueprint, jsonify
 
 from boss_bot.message_store import MessageStore
-from boss_bot.page_handler import BossChatHandler
+
 
 bp = Blueprint('messages', __name__)
 logger = logging.getLogger("bot")
@@ -16,27 +16,15 @@ logger = logging.getLogger("bot")
 
 @bp.route("/api/unread")
 def api_unread():
-    """获取未读消息列表（复用全局浏览器实例，避免重复启动浏览器）"""
+    """获取未读消息列表（从 bot_state 缓存读取，不触发浏览器操作，避免频繁刷新触发风控）"""
     from flask import current_app
     bot_state = current_app.config["BOT_STATE"]
-    _bot_handler = current_app.config.get("_BOT_HANDLER")
 
     try:
-        if _bot_handler is not None and bot_state["running"]:
-            handler, owned = _bot_handler, False
-        else:
-            handler, owned = BossChatHandler(), True
-
-        try:
-            handler.go_to_chat()
-            unread = handler.get_unread_chats()
-        finally:
-            if owned:
-                handler.close()
-
+        cached = bot_state.get("last_unread_chats", [])
         return jsonify({
             "success": True,
-            "data": [{"name": c["name"], "preview": c["preview"][:100], "count": c["unread_count"]} for c in unread]
+            "data": [{"name": c["name"], "preview": c.get("preview", "")[:100], "count": c.get("unread_count", 1)} for c in cached]
         })
     except Exception as e:
         return jsonify({"success": False, "message": str(e)})
